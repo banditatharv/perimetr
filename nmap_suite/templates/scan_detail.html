@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+{% block title %}{{ scan.name }} — nmap_suite{% endblock %}
+{% block topbar_title %}{{ scan.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <div style="font-size:.75rem;color:var(--dim);margin-bottom:.3rem">
+      <a href="{{ url_for('scans_list') }}" style="color:var(--dim);text-decoration:none">Scans</a> /
+    </div>
+    <h1>{{ scan.name }}</h1>
+  </div>
+  <div class="actions">
+    <a href="{{ url_for('finding_new') }}" class="btn btn-secondary">＋ Add Finding</a>
+    <form method="post" action="{{ url_for('delete_scan', scan_id=scan.id) }}"
+          onsubmit="return confirm('Delete this scan?')" style="display:inline">
+      <button class="btn btn-danger">Delete Scan</button>
+    </form>
+  </div>
+</div>
+
+<!-- SCAN META -->
+<div class="card mb-3">
+  <div class="card-body" style="padding:.85rem 1.25rem">
+    <div class="flex flex-wrap gap-2" style="align-items:center">
+      {% for h in hosts %}
+      <div class="flex-center gap-1">
+        <span class="mono" style="color:var(--purple);font-weight:700">{{ h.ip }}</span>
+        {% if h.hostname and h.hostname != h.ip %}
+          <span class="t-dim">({{ h.hostname }})</span>
+        {% endif %}
+        <span class="status-{{ h.status }}">{{ h.status.upper() }}</span>
+      </div>
+      {% endfor %}
+      <div class="t-dim" style="font-size:.75rem; margin-left:auto">
+        Scanned: {{ scan.scan_date or 'unknown' }} · Imported: {{ scan.imported_at[:10] }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs tab-group" id="scanTabs">
+  <button class="tab active" data-tab="tab-ports">
+    🔌 Ports <span style="color:var(--dim);font-size:.75rem">({{ ports|length }})</span>
+  </button>
+  <button class="tab" data-tab="tab-auto-findings">
+    ⚡ Auto Findings <span style="color:var(--dim);font-size:.75rem">({{ auto_findings|length }})</span>
+  </button>
+  <button class="tab" data-tab="tab-manual-findings">
+    🎯 My Findings <span style="color:var(--dim);font-size:.75rem">({{ manual_findings|length }})</span>
+  </button>
+  {% if nuclei_findings %}
+  <button class="tab" data-tab="tab-nuclei">
+    🧬 Nuclei <span style="color:var(--dim);font-size:.75rem">({{ nuclei_findings|length }})</span>
+  </button>
+  {% endif %}
+  {% if ssh_findings %}
+  <button class="tab" data-tab="tab-ssh">
+    🔑 SSH <span style="color:var(--dim);font-size:.75rem">({{ ssh_findings|length }})</span>
+  </button>
+  {% endif %}
+  <button class="tab" data-tab="tab-services">🗺️ Service Map</button>
+  <button class="tab" data-tab="tab-notes">
+    📝 Notes <span style="color:var(--dim);font-size:.75rem">({{ notes|length }})</span>
+  </button>
+</div>
+
+<!-- ── PORTS ─────────────────────────────────── -->
+<div class="tab-pane active" id="tab-ports">
+  <div class="filter-bar">
+    <input type="text" id="portSearch" placeholder="🔎 Search port, service, version..."
+           oninput="filterTable()" style="width:300px">
+    <select id="portState" onchange="filterTable()">
+      <option value="">All States</option>
+      <option value="open">Open</option>
+      <option value="filtered">Filtered</option>
+      <option value="closed">Closed</option>
+    </select>
+    <select id="portCat" onchange="filterTable()">
+      <option value="">All Categories</option>
+      {% set cats = ports | map(attribute='category') | unique | sort | list %}
+      {% for cat in cats %}
+      <option value="{{ cat }}">{{ cat }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="table-wrap">
+  <table>
+    <thead><tr>
+      <th onclick="sortTable('portTbl',0)">Port ↕</th>
+      <th>Protocol</th>
+      <th onclick="sortTable('portTbl',2)">State ↕</th>
+      <th onclick="sortTable('portTbl',3)">Service ↕</th>
+      <th>Category</th>
+      <th>Version / Info</th>
+    </tr></thead>
+    <tbody id="portTbl">
+      {% for p in ports %}
+      <tr data-state="{{ p.state }}" data-cat="{{ p.category }}">
+        <td class="t-port">{{ p.port }}/{{ p.protocol }}</td>
+        <td class="t-dim">{{ p.protocol }}</td>
+        <td class="
+          {% if 'open' in p.state %}text-green fw
+          {% elif 'filtered' in p.state %}{% else %}text-red{% endif %}">
+          {{ p.state.upper() }}
+        </td>
+        <td class="t-service">{{ p.service }}</td>
+        <td><span class="tag">{{ p.category }}</span></td>
+        <td class="t-version">{{ p.version }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<!-- ── AUTO FINDINGS ──────────────────────────── -->
+<div class="tab-pane" id="tab-auto-findings">
+  {% if auto_findings %}
+  <div class="findings-list">
+    {% for f in auto_findings %}
+    <div class="finding-row {{ f.severity }}">
+      <div style="min-width:90px">
+        <span class="sev sev-{{ f.severity }}">{{ f.severity }}</span>
+        <div style="font-size:.68rem;color:var(--dim);margin-top:.3rem">{{ f.rule_id }}</div>
+      </div>
+      <div class="fr-body">
+        <div class="fr-title">{{ f.name }}</div>
+        <div class="fr-desc">{{ f.description }}</div>
+        <details style="margin-top:.5rem">
+          <summary style="font-size:.75rem;color:var(--dim);cursor:pointer">Detail &amp; Recommendation</summary>
+          <div style="font-size:.78rem;color:var(--dim);margin-top:.4rem;line-height:1.6">
+            {{ f.detail }}
+          </div>
+          <div class="fr-rec" style="margin-top:.4rem">
+            ✎ {{ f.recommendation }}
+          </div>
+        </details>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">✅</div>
+    <h3>No auto-findings</h3>
+    <p>The fingerprint engine found no matches for this scan.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── MANUAL FINDINGS ────────────────────────── -->
+<div class="tab-pane" id="tab-manual-findings">
+  <div class="flex mb-2">
+    <a href="{{ url_for('finding_new') }}?scan_id={{ scan.id }}" class="btn btn-primary btn-sm">＋ Add Finding</a>
+  </div>
+  {% if manual_findings %}
+  <div class="findings-list">
+    {% for f in manual_findings %}
+    <div class="finding-row {{ f.severity }}" style="cursor:pointer"
+         onclick="location.href='{{ url_for('finding_detail', finding_id=f.id) }}'">
+      <div style="min-width:90px">
+        <span class="sev sev-{{ f.severity }}">{{ f.severity }}</span>
+        <div style="margin-top:.3rem">
+          <span class="status-badge status-{{ f.status.replace(' ','-') }}">{{ f.status }}</span>
+        </div>
+      </div>
+      <div class="fr-body">
+        <div class="fr-title">{{ f.title }}</div>
+        <div class="fr-desc">
+          {% if f.host_ip %}<span class="mono" style="color:var(--purple)">{{ f.host_ip }}</span> · {% endif %}
+          {{ f.description[:120] }}{% if f.description|length > 120 %}...{% endif %}
+        </div>
+        {% if f.tags %}
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap">
+          {% for tag in f.tags %}<span class="tag">{{ tag }}</span>{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      <div style="font-size:.72rem;color:var(--dim);white-space:nowrap">{{ f.created_at[:10] }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🎯</div>
+    <h3>No manual findings yet</h3>
+    <p><a href="{{ url_for('finding_new') }}" style="color:var(--blue)">Add your first finding</a></p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── NUCLEI FINDINGS (imported) ─────────────── -->
+{% if nuclei_findings %}
+<div class="tab-pane" id="tab-nuclei">
+  <div class="table-wrap">
+  <table>
+    <thead><tr>
+      <th>Severity</th><th>Template</th><th>Host</th><th>Tags</th>
+      <th>CVSS</th><th>CWE</th><th>Detail</th>
+    </tr></thead>
+    <tbody>
+      {% for f in nuclei_findings %}
+      <tr>
+        <td><span class="sev sev-{{ f.severity }}">{{ f.severity }}</span></td>
+        <td class="t-service">{{ f.template }}</td>
+        <td class="mono" style="color:var(--purple)">{{ f.host }}</td>
+        <td>
+          {% if f.tags and f.tags != 'N/A' %}
+            {% for tag in f.tags.split(',') %}<span class="tag">{{ tag.strip() }}</span>{% endfor %}
+          {% else %}<span class="t-dim">—</span>{% endif %}
+        </td>
+        <td class="t-dim">{{ f.cvss or '—' }}</td>
+        <td class="t-dim">{{ f.cwe or '—' }}</td>
+        <td>
+          {% if (f.description and f.description != 'N/A') or (f.curl_cmd and f.curl_cmd != 'N/A') %}
+          <details>
+            <summary style="font-size:.75rem;color:var(--dim);cursor:pointer">view</summary>
+            {% if f.description and f.description != 'N/A' %}
+            <div style="font-size:.78rem;color:var(--text2);margin-top:.4rem;line-height:1.5;max-width:480px">{{ f.description }}</div>
+            {% endif %}
+            {% if f.curl_cmd and f.curl_cmd != 'N/A' %}
+            <pre style="font-size:.72rem;background:var(--bg2,#0d1117);padding:.5rem .7rem;border-radius:6px;
+                        margin-top:.5rem;overflow-x:auto;max-width:480px;white-space:pre-wrap">{{ f.curl_cmd }}</pre>
+            {% endif %}
+          </details>
+          {% else %}<span class="t-dim">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── SSH AUDIT FINDINGS (imported) ──────────── -->
+{% if ssh_findings %}
+{% set ssh_label = {'fail':'FAIL','warn':'WARN','rec_remove':'REMOVE','rec_add':'ADD'} %}
+{% set ssh_color = {'fail':'var(--red)','warn':'var(--yellow)','rec_remove':'var(--purple)','rec_add':'var(--green)'} %}
+{% set ssh_type  = {'kex':'Key Exchange','key':'Host Key','enc':'Encryption','mac':'MAC','rec':'Recommendation'} %}
+<div class="tab-pane" id="tab-ssh">
+  <div class="table-wrap">
+  <table>
+    <thead><tr>
+      <th>Severity</th><th>Host</th><th>Type</th><th>Algorithm</th><th>Reason</th>
+    </tr></thead>
+    <tbody>
+      {% for f in ssh_findings %}
+      <tr>
+        <td><span style="display:inline-block;padding:.12rem .5rem;border-radius:4px;font-size:.68rem;font-weight:700;
+                         color:#0d1117;background:{{ ssh_color.get(f.severity,'var(--dim)') }}">{{ ssh_label.get(f.severity, f.severity|upper) }}</span></td>
+        <td class="mono" style="color:var(--purple)">{{ f.host }}</td>
+        <td class="t-dim">{{ ssh_type.get(f.algo_type, f.algo_type) }}</td>
+        <td class="t-service mono">{{ f.algo_name }}</td>
+        <td class="t-dim" style="font-size:.8rem">{{ f.reason or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── SERVICE MAP ────────────────────────────── -->
+<div class="tab-pane" id="tab-services">
+  {% if smap %}
+  <div class="smap-grid">
+    {% for cat, entries in smap.items() | sort %}
+    <div class="smap-card">
+      <div class="smap-cat">
+        {% set icons = {'Remote Access':'🔐','Web / App Server':'🌐','File Transfer':'📁',
+           'Database':'🗄️','Monitoring':'📊','Messaging / RPC':'📨',
+           'Mail':'✉️','Directory':'📒','Infrastructure':'⚙️',
+           'Unknown / Wrapped':'❓','Other':'📦'} %}
+        {{ icons.get(cat, '📦') }} {{ cat }}
+        <span class="smap-count">{{ entries|length }}</span>
+      </div>
+      <div class="smap-body">
+        {% set ips = entries | map(attribute='ip') | unique | list %}
+        {% for ip in ips | sort %}
+          {% set ip_entries = entries | selectattr('ip', 'equalto', ip) | list %}
+          <div class="smap-host">
+            <div class="smap-ip">{{ ip }}</div>
+            {% for e in ip_entries %}
+            <div class="smap-port-row">
+              <span class="smap-port-num">{{ e.port }}/{{ e.protocol }}</span>
+              <span class="smap-svc">{{ e.service }}</span>
+              {% if e.version %}<span class="smap-ver">{{ e.version[:50] }}</span>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state"><div class="empty-icon">🗺️</div><p>No service data.</p></div>
+  {% endif %}
+</div>
+
+<!-- ── NOTES ──────────────────────────────────── -->
+<div class="tab-pane" id="tab-notes">
+  <div class="flex mb-2 gap-1">
+    <button class="btn btn-primary btn-sm" onclick="openModal('note-modal')">＋ Add Note</button>
+  </div>
+
+  {% if notes %}
+  <div class="notes-grid">
+    {% for n in notes %}
+    <div class="note-card color-{{ n.color }} {% if n.pinned %}pinned{% endif %}">
+      <div class="note-card-header">
+        <div class="note-card-title">{{ n.title }}</div>
+        {% if n.pinned %}<span class="note-pin-icon" title="Pinned">📌</span>{% endif %}
+        <div class="flex gap-1">
+          <button class="btn btn-secondary btn-sm btn-icon"
+                  onclick="openEditNote({{ n.id }}, '{{ n.title|e }}', `{{ n.content|e }}`, '{{ n.color }}', {{ n.pinned }})">✏️</button>
+          <form method="post" action="{{ url_for('note_delete', note_id=n.id) }}"
+                onsubmit="return confirm('Delete this note?')">
+            <button class="btn btn-danger btn-sm btn-icon">🗑</button>
+          </form>
+        </div>
+      </div>
+      <div class="note-card-body">{{ n.content }}</div>
+      <div class="note-card-footer">
+        {% if n.host_ip %}<span class="mono" style="color:var(--purple);font-size:.7rem">{{ n.host_ip }}</span> · {% endif %}
+        <span>{{ n.updated_at[:16] }}</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">📝</div>
+    <h3>No notes for this scan</h3>
+    <p>Add notes to track your progress and observations.</p>
+  </div>
+  {% endif %}
+
+  <!-- SCAN NOTES (prose) -->
+  <div class="divider"></div>
+  <div class="card">
+    <div class="card-header"><h3>📋 Scan Notes</h3></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('save_scan_notes', scan_id=scan.id) }}">
+        <textarea name="notes" class="form-control" rows="6"
+                  placeholder="Overall observations, context, scope, progress notes...">{{ scan.notes or '' }}</textarea>
+        <div style="margin-top:.75rem">
+          <button type="submit" class="btn btn-primary">Save Notes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ADD NOTE MODAL -->
+<div class="modal-overlay" id="note-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="noteModalTitle">Add Note</h3>
+      <button class="modal-close" onclick="closeModal('note-modal')">✕</button>
+    </div>
+    <form id="noteForm" method="post" action="{{ url_for('note_new') }}">
+      <input type="hidden" name="scan_id" value="{{ scan.id }}">
+      <input type="hidden" id="noteEditUrl" name="_edit_url" value="">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Title <span class="req">*</span></label>
+          <input type="text" name="title" id="noteTitle" class="form-control" required placeholder="Note title">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Host IP (optional)</label>
+          <input type="text" name="host_ip" id="noteHostIp" class="form-control"
+                 placeholder="e.g. 10.32.77.206"
+                 list="host-ips">
+          <datalist id="host-ips">
+            {% for h in hosts %}<option value="{{ h.ip }}">{% endfor %}
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Content</label>
+          <textarea name="content" id="noteContent" class="form-control" rows="6"
+                    placeholder="Write your notes here..."></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Color</label>
+            <select name="color" id="noteColor" class="form-control">
+              <option value="default">Default</option>
+              <option value="blue">Blue</option>
+              <option value="green">Green</option>
+              <option value="yellow">Yellow</option>
+              <option value="red">Red</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:.1rem">
+            <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-size:.85rem;color:var(--text2)">
+              <input type="checkbox" name="pinned" id="notePinned" style="width:16px;height:16px"> Pin to Dashboard
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('note-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="noteSubmitBtn">Add Note</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── PORT FILTER ──────────────────────────────
+function filterTable() {
+  const q   = document.getElementById('portSearch').value.toLowerCase();
+  const st  = document.getElementById('portState').value;
+  const cat = document.getElementById('portCat').value;
+  document.querySelectorAll('#portTbl tr').forEach(r => {
+    const txt = r.innerText.toLowerCase();
+    const rs  = r.dataset.state || '';
+    const rc  = r.dataset.cat  || '';
+    r.style.display = (!q || txt.includes(q)) && (!st || rs===st) && (!cat || rc===cat) ? '' : 'none';
+  });
+}
+
+// ── NOTE EDIT ────────────────────────────────
+function openEditNote(id, title, content, color, pinned) {
+  document.getElementById('noteModalTitle').textContent = 'Edit Note';
+  document.getElementById('noteTitle').value   = title;
+  document.getElementById('noteContent').value = content;
+  document.getElementById('noteColor').value   = color;
+  document.getElementById('notePinned').checked= !!pinned;
+  document.getElementById('noteSubmitBtn').textContent = 'Save Changes';
+  document.getElementById('noteForm').action = `/notes/${id}/edit`;
+  openModal('note-modal');
+}
+
+// Reset form when opening fresh
+document.querySelector('[onclick="openModal(\'note-modal\')"]')?.addEventListener('click', () => {
+  document.getElementById('noteModalTitle').textContent = 'Add Note';
+  document.getElementById('noteForm').reset();
+  document.getElementById('noteForm').action = '{{ url_for("note_new") }}';
+  document.getElementById('noteSubmitBtn').textContent = 'Add Note';
+});
+
+// Restore tab from hash
+const hash = location.hash.replace('#','').replace('-tab','');
+if (hash) {
+  const btn = document.querySelector(`[data-tab="tab-${hash}"]`);
+  if (btn) btn.click();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Notes — nmap_suite{% endblock %}
+{% block topbar_title %}Notes{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Notes</h1>
+  <div class="actions">
+    <button class="btn btn-primary" onclick="openModal('note-modal')">＋ New Note</button>
+  </div>
+</div>
+
+<!-- FILTER BAR -->
+<div class="filter-bar mb-2">
+  <input type="text" id="noteSearch" placeholder="🔎 Search notes..."
+         oninput="filterNotes()" style="width:280px">
+  <select id="noteScanFilter" onchange="filterNotes()">
+    <option value="">All Scans</option>
+    {% for s in scans %}<option value="{{ s.name }}">{{ s.name }}</option>{% endfor %}
+    <option value="__none__">— No scan —</option>
+  </select>
+  <select id="noteColorFilter" onchange="filterNotes()">
+    <option value="">All Colors</option>
+    <option value="default">Default</option>
+    <option value="blue">Blue</option>
+    <option value="green">Green</option>
+    <option value="yellow">Yellow</option>
+    <option value="red">Red</option>
+  </select>
+  <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem;color:var(--dim);cursor:pointer">
+    <input type="checkbox" id="pinnedOnly" onchange="filterNotes()"> Pinned only
+  </label>
+</div>
+
+{% if notes %}
+<div class="notes-grid" id="noteGrid">
+  {% for n in notes %}
+  <div class="note-card color-{{ n.color }} {% if n.pinned %}pinned{% endif %}"
+       data-scan="{{ n.scan_name or '' }}"
+       data-color="{{ n.color }}"
+       data-pinned="{{ n.pinned }}">
+    <div class="note-card-header">
+      <div class="note-card-title">{{ n.title }}</div>
+      <div class="flex gap-1" style="flex-shrink:0">
+        {% if n.pinned %}<span class="note-pin-icon" title="Pinned">📌</span>{% endif %}
+        <button class="btn btn-secondary btn-sm btn-icon"
+                onclick="openEditNote({{ n.id }}, '{{ n.title|e }}', `{{ n.content|replace('`','\\`')|e }}`, '{{ n.color }}', {{ n.pinned }}, {{ n.scan_id or 'null' }}, '{{ n.host_ip or '' }}')"
+                title="Edit">✏️</button>
+        <form method="post" action="{{ url_for('note_delete', note_id=n.id) }}"
+              onsubmit="return confirm('Delete this note?')">
+          <button class="btn btn-danger btn-sm btn-icon" title="Delete">🗑</button>
+        </form>
+      </div>
+    </div>
+    <div class="note-card-body">{{ n.content }}</div>
+    <div class="note-card-footer">
+      {% if n.scan_name %}
+        <span style="color:var(--blue);font-size:.7rem">📂 {{ n.scan_name }}</span> ·
+      {% endif %}
+      {% if n.host_ip %}
+        <span class="mono" style="color:var(--purple);font-size:.7rem">{{ n.host_ip }}</span> ·
+      {% endif %}
+      <span>{{ n.updated_at[:16] }}</span>
+      <form method="post" action="{{ url_for('note_edit', note_id=n.id) }}"
+            style="margin-left:auto" id="pin-form-{{ n.id }}">
+        <input type="hidden" name="title"   value="{{ n.title }}">
+        <input type="hidden" name="content" value="{{ n.content }}">
+        <input type="hidden" name="color"   value="{{ n.color }}">
+        <input type="hidden" name="pinned"  value="{{ '' if n.pinned else '1' }}">
+        <button type="submit" class="btn btn-secondary btn-sm"
+                style="font-size:.68rem;padding:.1rem .4rem"
+                title="{{ 'Unpin' if n.pinned else 'Pin' }}">
+          {{ '📌 Unpin' if n.pinned else '📌 Pin' }}
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">📝</div>
+  <h3>No notes yet</h3>
+  <p>Keep track of your observations, progress, and context.</p>
+  <br>
+  <button class="btn btn-primary" onclick="openModal('note-modal')">＋ Create First Note</button>
+</div>
+{% endif %}
+
+<!-- NOTE MODAL -->
+<div class="modal-overlay" id="note-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="noteModalTitle">New Note</h3>
+      <button class="modal-close" onclick="closeModal('note-modal')">✕</button>
+    </div>
+    <form id="noteForm" method="post" action="{{ url_for('note_new') }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Title <span class="req">*</span></label>
+          <input type="text" name="title" id="noteTitle" class="form-control" required
+                 placeholder="Note title">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Linked Scan</label>
+            <select name="scan_id" id="noteScan" class="form-control">
+              <option value="">— none —</option>
+              {% for s in scans %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Host IP (optional)</label>
+            <input type="text" name="host_ip" id="noteHostIp" class="form-control"
+                   placeholder="e.g. 10.32.77.206">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Content</label>
+          <textarea name="content" id="noteContent" class="form-control" rows="7"
+                    placeholder="Write your notes, observations, or progress updates here..."></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Color</label>
+            <select name="color" id="noteColor" class="form-control">
+              <option value="default">⬜ Default</option>
+              <option value="blue">🔵 Blue</option>
+              <option value="green">🟢 Green</option>
+              <option value="yellow">🟡 Yellow</option>
+              <option value="red">🔴 Red</option>
+            </select>
+          </div>
+          <div class="form-group" style="display:flex;align-items:flex-end;padding-bottom:.5rem">
+            <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;font-size:.85rem;color:var(--text2)">
+              <input type="checkbox" name="pinned" id="notePinned" style="width:16px;height:16px">
+              📌 Pin to Dashboard
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('note-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="noteSubmitBtn">Add Note</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterNotes() {
+  const q     = document.getElementById('noteSearch').value.toLowerCase();
+  const sc    = document.getElementById('noteScanFilter').value;
+  const col   = document.getElementById('noteColorFilter').value;
+  const ponly = document.getElementById('pinnedOnly').checked;
+  document.querySelectorAll('#noteGrid .note-card').forEach(c => {
+    const txt   = c.innerText.toLowerCase();
+    const scan  = c.dataset.scan  || '';
+    const color = c.dataset.color || '';
+    const pinned= c.dataset.pinned === '1' || c.dataset.pinned === 'True';
+    const matchSc = !sc || (sc === '__none__' ? !scan : scan === sc);
+    c.style.display =
+      (!q    || txt.includes(q)) &&
+      matchSc &&
+      (!col  || color === col) &&
+      (!ponly || pinned) ? '' : 'none';
+  });
+}
+
+function openEditNote(id, title, content, color, pinned, scanId, hostIp) {
+  document.getElementById('noteModalTitle').textContent = 'Edit Note';
+  document.getElementById('noteTitle').value   = title;
+  document.getElementById('noteContent').value = content;
+  document.getElementById('noteColor').value   = color;
+  document.getElementById('notePinned').checked= !!pinned;
+  document.getElementById('noteHostIp').value  = hostIp || '';
+  if (scanId) document.getElementById('noteScan').value = scanId;
+  document.getElementById('noteSubmitBtn').textContent = 'Save Changes';
+  document.getElementById('noteForm').action = `/notes/${id}/edit`;
+  openModal('note-modal');
+}
+
+// Reset on fresh open
+document.querySelector('[onclick="openModal(\'note-modal\')"]')?.addEventListener('click', () => {
+  document.getElementById('noteModalTitle').textContent = 'New Note';
+  document.getElementById('noteForm').reset();
+  document.getElementById('noteForm').action = '{{ url_for("note_new") }}';
+  document.getElementById('noteSubmitBtn').textContent = 'Add Note';
+});
+</script>
+{% endblock %}

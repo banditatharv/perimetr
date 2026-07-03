@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}nmap_suite{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+{% block head %}{% endblock %}
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="logo">🔍 <span>nmap</span>_suite</div>
+    <div class="version">v2.0 — recon tracker</div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section-label">Main</div>
+    <a href="{{ url_for('dashboard') }}"
+       class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+      <span class="icon">📊</span> Dashboard
+    </a>
+    <a href="{{ url_for('scans_list') }}"
+       class="nav-item {% if request.endpoint in ['scans_list','scan_detail'] %}active{% endif %}">
+      <span class="icon">🗂️</span> Scans
+    </a>
+    <a href="{{ url_for('projects_list') }}"
+       class="nav-item {% if 'project' in request.endpoint %}active{% endif %}">
+      <span class="icon">📁</span> Projects
+    </a>
+
+    <div class="nav-section-label" style="margin-top:.5rem">Workspace</div>
+    <a href="{{ url_for('service_map') }}"
+       class="nav-item {% if request.endpoint == 'service_map' %}active{% endif %}">
+      <span class="icon">🗺️</span> Service Map
+    </a>
+    <a href="{{ url_for('findings_list') }}"
+       class="nav-item {% if 'finding' in request.endpoint %}active{% endif %}">
+      <span class="icon">🎯</span> Findings
+      {% set mf_open = stats.get('mf_open', 0) if stats is defined else 0 %}
+      {% if mf_open %}<span class="nav-badge">{{ mf_open }}</span>{% endif %}
+    </a>
+    <a href="{{ url_for('nuclei_list') }}"
+       class="nav-item {% if request.endpoint == 'nuclei_list' %}active{% endif %}">
+      <span class="icon">🧬</span> Nuclei
+    </a>
+    <a href="{{ url_for('ssh_list') }}"
+       class="nav-item {% if request.endpoint == 'ssh_list' %}active{% endif %}">
+      <span class="icon">🔑</span> SSH Audit
+    </a>
+    <a href="{{ url_for('notes_list') }}"
+       class="nav-item {% if 'note' in request.endpoint %}active{% endif %}">
+      <span class="icon">📝</span> Notes
+    </a>
+
+    <div class="nav-section-label" style="margin-top:.5rem">Config</div>
+    <a href="{{ url_for('rules_list') }}"
+       class="nav-item {% if 'rule' in request.endpoint %}active{% endif %}">
+      <span class="icon">⚙️</span> Rules
+    </a>
+  </nav>
+  <div class="sidebar-footer">
+    SQLite · <span id="sb-time"></span>
+  </div>
+</aside>
+
+<!-- FLASH MESSAGES -->
+<div class="flash-container">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash {{ cat }}" onclick="this.remove()">
+        <span>{% if cat == 'success' %}✓{% elif cat == 'error' %}✕{% else %}ℹ{% endif %}</span>
+        {{ msg }}
+      </div>
+    {% endfor %}
+  {% endwith %}
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="topbar-title">{% block topbar_title %}{% endblock %}</div>
+    <div class="topbar-search">
+      <span class="search-icon">🔎</span>
+      <input type="text" id="globalSearch" placeholder="Search IPs, findings, notes..." autocomplete="off">
+      <div class="search-results" id="searchResults"></div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+<script>
+// ── FLASH AUTO-DISMISS ───────────────────────────────────
+setTimeout(() => {
+  document.querySelectorAll('.flash').forEach(f => {
+    f.style.transition = 'opacity .3s';
+    f.style.opacity = '0';
+    setTimeout(() => f.remove(), 300);
+  });
+}, 3500);
+
+// ── SIDEBAR CLOCK ────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById('sb-time').textContent =
+    now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+updateClock();
+setInterval(updateClock, 10000);
+
+// ── GLOBAL SEARCH ────────────────────────────────────────
+const searchInput   = document.getElementById('globalSearch');
+const searchResults = document.getElementById('searchResults');
+let searchTimer;
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = searchInput.value.trim();
+  if (q.length < 2) { searchResults.style.display='none'; return; }
+  searchTimer = setTimeout(() => fetchSearch(q), 220);
+});
+searchInput.addEventListener('focus', () => {
+  if (searchInput.value.trim().length >= 2) searchResults.style.display='block';
+});
+searchInput.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { searchResults.style.display='none'; searchInput.blur(); }
+  if (e.key === 'Enter' && searchInput.value.trim().length >= 2) {
+    window.location.href = '/services?q=' + encodeURIComponent(searchInput.value.trim());
+  }
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('.topbar-search')) searchResults.style.display='none';
+});
+
+async function fetchSearch(q) {
+  try {
+    searchResults.innerHTML = '<div class="search-empty" style="padding:.8rem 1rem">Searching...</div>';
+    searchResults.style.display = 'block';
+    const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    if (!r.ok) throw new Error('search failed');
+    const d = await r.json();
+    renderSearch(d, q);
+  } catch(err) {
+    searchResults.innerHTML = '<div class="search-empty">Search error — try again</div>';
+  }
+}
+
+function hl(text, q) {
+  if (!q) return text;
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return String(text).replace(new RegExp(escaped, 'gi'), m => `<span class="hl">${m}</span>`);
+}
+
+function renderSearch(data, q) {
+  const { hosts=[], findings=[], notes=[], ports=[], auto_findings=[] } = data;
+  const total = hosts.length + findings.length + notes.length + ports.length + auto_findings.length;
+
+  if (total === 0) {
+    searchResults.innerHTML = `<div class="search-empty">No results for "<strong>${q}</strong>"<br><small style="color:var(--dim)">Press Enter to search services</small></div>`;
+    searchResults.style.display = 'block';
+    return;
+  }
+
+  let html = '';
+
+  if (hosts.length) {
+    html += '<div class="search-group-label">🖥 Hosts</div>';
+    hosts.slice(0,4).forEach(h => {
+      html += `<div class="search-result-item" onclick="location.href='/scans'">
+        <div class="r-title">${hl(h.ip, q)}${h.hostname && h.hostname !== h.ip ? ' <span style="color:var(--dim);font-size:.75rem">— '+hl(h.hostname,q)+'</span>' : ''}</div>
+        <div class="r-sub">${h.scan_name || ''} · <span class="status-${h.status}">${h.status?.toUpperCase()}</span></div>
+      </div>`;
+    });
+  }
+
+  if (ports.length) {
+    html += '<div class="search-group-label">🔌 Services / Ports</div>';
+    ports.slice(0,4).forEach(p => {
+      html += `<div class="search-result-item" onclick="location.href='/services?q=${encodeURIComponent(q)}'">
+        <div class="r-title" style="display:flex;gap:.5rem;align-items:center">
+          <span style="color:var(--cyan);font-family:monospace">${p.port}/${p.protocol}</span>
+          <span style="color:var(--yellow)">${hl(p.service,q)}</span>
+          <span style="color:var(--dim);font-size:.72rem">${p.state}</span>
+        </div>
+        <div class="r-sub" style="color:var(--purple)">${p.ip}${p.hostname && p.hostname!==p.ip?' ('+p.hostname+')':''} · ${hl(p.version?.substring(0,50)||'',q)}</div>
+      </div>`;
+    });
+  }
+
+  if (findings.length) {
+    html += '<div class="search-group-label">🎯 Findings</div>';
+    findings.slice(0,3).forEach(f => {
+      html += `<div class="search-result-item" onclick="location.href='/findings/${f.id}'">
+        <div class="r-title">${hl(f.title,q)}</div>
+        <div class="r-sub"><span class="sev sev-${f.severity}" style="font-size:.65rem">${f.severity}</span> · ${f.status}</div>
+      </div>`;
+    });
+  }
+
+  if (auto_findings.length) {
+    html += '<div class="search-group-label">⚡ Auto Findings</div>';
+    auto_findings.slice(0,3).forEach(f => {
+      html += `<div class="search-result-item" onclick="location.href='/findings'">
+        <div class="r-title">${hl(f.name,q)}</div>
+        <div class="r-sub"><span class="sev sev-${f.severity}" style="font-size:.65rem">${f.severity}</span> · ${f.ip}</div>
+      </div>`;
+    });
+  }
+
+  if (notes.length) {
+    html += '<div class="search-group-label">📝 Notes</div>';
+    notes.slice(0,2).forEach(n => {
+      html += `<div class="search-result-item" onclick="location.href='/notes'">
+        <div class="r-title">${hl(n.title,q)}</div>
+        <div class="r-sub">${hl((n.content||'').substring(0,60),q)}${n.content?.length>60?'...':''}</div>
+      </div>`;
+    });
+  }
+
+  html += `<div style="padding:.5rem 1rem;border-top:1px solid var(--border);font-size:.72rem;color:var(--dim);cursor:pointer;text-align:center"
+    onclick="location.href='/services?q=${encodeURIComponent(q)}'">
+    View all results on Service Map →
+  </div>`;
+
+  searchResults.innerHTML = html;
+  searchResults.style.display = 'block';
+}
+
+// ── GENERIC TAB SYSTEM ───────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const group = tab.closest('.tab-group') || tab.parentElement;
+    const target = tab.dataset.tab;
+    group.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelectorAll('.tab-pane').forEach(p => {
+      p.classList.toggle('active', p.id === target);
+    });
+  });
+});
+
+// ── MODAL SYSTEM ─────────────────────────────────────────
+function openModal(id) {
+  document.getElementById(id).classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+  document.body.style.overflow = '';
+}
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) closeModal(m.id); });
+});
+
+// ── TABLE SORT ───────────────────────────────────────────
+const sortDirs = {};
+function sortTable(tbodyId, col) {
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  const key = tbodyId + col;
+  sortDirs[key] = !sortDirs[key];
+  rows.sort((a,b) => {
+    const av = a.cells[col]?.innerText || '';
+    const bv = b.cells[col]?.innerText || '';
+    return sortDirs[key]
+      ? av.localeCompare(bv, undefined, {numeric:true})
+      : bv.localeCompare(av, undefined, {numeric:true});
+  });
+  rows.forEach(r => tbody.appendChild(r));
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

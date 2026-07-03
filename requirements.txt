@@ -1,0 +1,10 @@
+requests
+dnspython
+urllib3
+colorama
+beautifulsoup4
+httpx
+rich
+xlsxwriter
+openpyxl
+questionary

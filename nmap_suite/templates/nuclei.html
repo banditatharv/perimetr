@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Nuclei Findings — nmap_suite{% endblock %}
+{% block topbar_title %}Nuclei Findings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>🧬 Nuclei Findings</h1>
+    <div class="t-dim" style="font-size:.8rem;margin-top:.2rem">
+      Imported from nuclei scans · {{ findings|length }} finding(s)
+    </div>
+  </div>
+</div>
+
+{% if findings %}
+{% set order = ['CRITICAL','HIGH','MEDIUM','LOW','INFO'] %}
+<div class="flex flex-wrap gap-1 mb-3">
+  {% for sev in order %}
+    {% set n = findings|selectattr('severity','equalto',sev)|list|length %}
+    {% if n %}<span class="sev sev-{{ sev }}">{{ sev }} · {{ n }}</span>{% endif %}
+  {% endfor %}
+</div>
+
+<div class="filter-bar">
+  <input type="text" id="nSearch" placeholder="🔎 Search template, host, tag, description..."
+         oninput="filterNuclei()" style="width:340px">
+  <select id="nSev" onchange="filterNuclei()">
+    <option value="">All Severities</option>
+    {% for sev in order %}<option value="{{ sev }}">{{ sev }}</option>{% endfor %}
+  </select>
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead><tr>
+    <th onclick="sortTable('nTbl',0)">Severity ↕</th>
+    <th onclick="sortTable('nTbl',1)">Template ↕</th>
+    <th onclick="sortTable('nTbl',2)">Host ↕</th>
+    <th>Tags</th>
+    <th>CVSS</th>
+    <th>CWE</th>
+    <th onclick="sortTable('nTbl',6)">Scan ↕</th>
+    <th>Detail</th>
+  </tr></thead>
+  <tbody id="nTbl">
+    {% for f in findings %}
+    <tr data-sev="{{ f.severity }}">
+      <td><span class="sev sev-{{ f.severity }}">{{ f.severity }}</span></td>
+      <td class="t-service">{{ f.template }}</td>
+      <td class="mono" style="color:var(--purple)">{{ f.host }}</td>
+      <td>
+        {% if f.tags and f.tags != 'N/A' %}
+          {% for tag in f.tags.split(',') %}<span class="tag">{{ tag.strip() }}</span>{% endfor %}
+        {% else %}<span class="t-dim">—</span>{% endif %}
+      </td>
+      <td class="t-dim">{{ f.cvss or '—' }}</td>
+      <td class="t-dim">{{ f.cwe or '—' }}</td>
+      <td>
+        <a href="{{ url_for('scan_detail', scan_id=f.scan_id) }}"
+           style="color:var(--blue);text-decoration:none">{{ f.scan_name }}</a>
+      </td>
+      <td>
+        {% if (f.description and f.description != 'N/A') or (f.curl_cmd and f.curl_cmd != 'N/A') %}
+        <details>
+          <summary style="font-size:.75rem;color:var(--dim);cursor:pointer">view</summary>
+          {% if f.description and f.description != 'N/A' %}
+          <div style="font-size:.78rem;color:var(--text2);margin-top:.4rem;line-height:1.5;max-width:520px">
+            {{ f.description }}
+          </div>
+          {% endif %}
+          {% if f.curl_cmd and f.curl_cmd != 'N/A' %}
+          <pre style="font-size:.72rem;background:var(--bg2,#0d1117);padding:.5rem .7rem;border-radius:6px;
+                      margin-top:.5rem;overflow-x:auto;max-width:520px;white-space:pre-wrap">{{ f.curl_cmd }}</pre>
+          {% endif %}
+          {% if f.source_file %}
+          <div class="t-dim" style="font-size:.68rem;margin-top:.35rem">📄 {{ f.source_file }}</div>
+          {% endif %}
+        </details>
+        {% else %}<span class="t-dim">—</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">🧬</div>
+  <h3>No nuclei findings imported</h3>
+  <p>Run a nuclei scan and import it: <code>perimetr import --project NAME --nuclei-dir DIR</code>,<br>
+     or let <code>perimetr run</code> auto-import at the end of a pipeline.</p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterNuclei() {
+  const q  = document.getElementById('nSearch').value.toLowerCase();
+  const sv = document.getElementById('nSev').value;
+  document.querySelectorAll('#nTbl tr').forEach(r => {
+    const txt = r.innerText.toLowerCase();
+    const rs  = r.dataset.sev || '';
+    r.style.display = (!q || txt.includes(q)) && (!sv || rs === sv) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

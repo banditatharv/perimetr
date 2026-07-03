@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Scans — nmap_suite{% endblock %}
+{% block topbar_title %}Scans{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Scans</h1>
+  <div class="actions">
+    <a href="{{ url_for('projects_list') }}" class="btn btn-secondary">📁 Projects</a>
+    <button class="btn btn-primary" onclick="openModal('import-modal')">＋ Import Scan</button>
+  </div>
+</div>
+
+{% if scans %}
+<div class="table-wrap">
+<table>
+  <thead><tr>
+    <th onclick="sortTable('scanTbl',0)">Name ↕</th>
+    <th>Project</th>
+    <th onclick="sortTable('scanTbl',2)">Hosts</th>
+    <th onclick="sortTable('scanTbl',3)">Open Ports</th>
+    <th onclick="sortTable('scanTbl',4)">Auto Findings</th>
+    <th onclick="sortTable('scanTbl',5)">Scan Date</th>
+    <th onclick="sortTable('scanTbl',6)">Imported</th>
+    <th>Actions</th>
+  </tr></thead>
+  <tbody id="scanTbl">
+    {% for s in scans %}
+    <tr>
+      <td>
+        <a href="{{ url_for('scan_detail', scan_id=s.id) }}" style="color:var(--blue);text-decoration:none;font-weight:600">
+          {{ s.name }}
+        </a>
+      </td>
+      <td>
+        {% if s.project_name %}
+          <a href="{{ url_for('project_detail', project_id=s.project_id) }}"
+             style="color:{{ s.project_color }};text-decoration:none;font-size:.8rem">
+            📁 {{ s.project_name }}
+          </a>
+        {% else %}
+          <span class="t-dim" style="font-size:.78rem">—</span>
+        {% endif %}
+      </td>
+      <td class="t-dim">{{ s.host_count }}</td>
+      <td style="color:var(--cyan)">{{ s.port_count }}</td>
+      <td>
+        {% if s.finding_count %}
+          <span class="sev sev-CRITICAL">{{ s.finding_count }}</span>
+        {% else %}
+          <span class="t-dim">—</span>
+        {% endif %}
+      </td>
+      <td class="t-dim">{{ (s.scan_date or '')[:10] }}</td>
+      <td class="t-dim">{{ s.imported_at[:10] }}</td>
+      <td>
+        <div class="flex gap-1">
+          <a href="{{ url_for('scan_detail', scan_id=s.id) }}" class="btn btn-secondary btn-sm">View</a>
+          <form method="post" action="{{ url_for('delete_scan', scan_id=s.id) }}"
+                onsubmit="return confirm('Delete scan {{ s.name }}?')">
+            <button class="btn btn-danger btn-sm">Delete</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">🗂️</div>
+  <h3>No scans yet</h3>
+  <p>Import a .nmap file to get started.</p>
+  <br>
+  <button class="btn btn-primary" onclick="openModal('import-modal')">＋ Import Scan</button>
+</div>
+{% endif %}
+
+<!-- IMPORT MODAL -->
+<div class="modal-overlay" id="import-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Import Nmap Scan</h3>
+      <button class="modal-close" onclick="closeModal('import-modal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="tabs tab-group" style="margin-bottom:1.5rem">
+        <button class="tab active" data-tab="import-file">📄 Single File</button>
+        <button class="tab" data-tab="import-dir">📁 Directory</button>
+      </div>
+
+      <!-- single file -->
+      <div class="tab-pane active" id="import-file">
+        <form method="post" action="{{ url_for('scan_import') }}" enctype="multipart/form-data">
+          <input type="hidden" name="mode" value="file">
+          <div class="form-group">
+            <label class="form-label">Scan Name (optional)</label>
+            <input type="text" name="scan_name" class="form-control" placeholder="Leave blank to use filename">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Add to Project (optional)</label>
+            <select name="project_id" class="form-control">
+              <option value="">— no project —</option>
+              {% for p in projects %}
+              <option value="{{ p.id }}">{{ p.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">.nmap File <span class="req">*</span></label>
+            <input type="file" name="nmap_file" class="form-control" accept=".nmap" required>
+          </div>
+          <div class="modal-footer" style="padding:0;margin-top:1rem;border:none">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('import-modal')">Cancel</button>
+            <button type="submit" class="btn btn-primary">Import</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- directory -->
+      <div class="tab-pane" id="import-dir">
+        <form method="post" action="{{ url_for('scan_import') }}">
+          <input type="hidden" name="mode" value="dir">
+          <div class="form-group">
+            <label class="form-label">Name Prefix (optional)</label>
+            <input type="text" name="scan_name" class="form-control" placeholder="e.g. 'corp-'">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Add to Project (optional)</label>
+            <select name="project_id" class="form-control">
+              <option value="">— no project —</option>
+              {% for p in projects %}
+              <option value="{{ p.id }}">{{ p.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Directory Path <span class="req">*</span></label>
+            <input type="text" name="scan_dir" class="form-control" placeholder="/home/user/scans/" required>
+            <div class="form-hint">All .nmap files in this directory will be imported.</div>
+          </div>
+          <div class="modal-footer" style="padding:0;margin-top:1rem;border:none">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('import-modal')">Cancel</button>
+            <button type="submit" class="btn btn-primary">Import All</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

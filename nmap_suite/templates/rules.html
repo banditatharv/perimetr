@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Fingerprint Rules — nmap_suite{% endblock %}
+{% block topbar_title %}Fingerprint Rules{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Fingerprint Rules</h1>
+    <p style="font-size:.82rem;color:var(--dim);margin-top:.3rem">
+      {{ builtin_rules|length }} built-in rules &middot; {{ custom_rules|length }} custom rules
+    </p>
+  </div>
+  <div class="actions">
+    <button class="btn btn-primary" onclick="openModal('addRuleModal')">＋ Add Custom Rule</button>
+  </div>
+</div>
+
+<!-- BUILT-IN RULES -->
+<div class="card mb-3" style="margin-bottom:1.25rem">
+  <div class="card-header">
+    <h3>⚡ Built-in Rules</h3>
+    <span style="font-size:.75rem;color:var(--dim);margin-left:.5rem">Applied automatically on every scan import. Toggle to skip a rule.</span>
+  </div>
+  <div class="table-wrap" style="border:none;border-radius:0">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:80px">ID</th>
+          <th style="width:90px">Severity</th>
+          <th>Name</th>
+          <th>Description</th>
+          <th style="width:110px;text-align:center">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in builtin_rules %}
+        {% set rid  = rule[0] %}
+        {% set sev  = rule[1] %}
+        {% set name = rule[2] %}
+        {% set desc = rule[4] %}
+        {% set enabled = overrides.get(rid, True) %}
+        <tr id="brow-{{ rid }}" {% if not enabled %}style="opacity:.4"{% endif %}>
+          <td><span class="mono" style="font-size:.73rem;color:var(--dim)">{{ rid }}</span></td>
+          <td><span class="sev sev-{{ sev }}">{{ sev }}</span></td>
+          <td style="font-weight:600;color:var(--text)">{{ name }}</td>
+          <td style="font-size:.78rem;color:var(--dim);max-width:400px">{{ desc }}</td>
+          <td style="text-align:center">
+            <button class="btn btn-sm {{ 'btn-success' if enabled else 'btn-danger' }}"
+                    id="btoggle-{{ rid }}"
+                    onclick="toggleBuiltin('{{ rid }}', this)">
+              {{ 'Enabled' if enabled else 'Disabled' }}
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- CUSTOM RULES -->
+<div class="card">
+  <div class="card-header">
+    <h3>🔧 Custom Rules</h3>
+    <span style="font-size:.75rem;color:var(--dim);margin-left:.5rem">Evaluated against each scan on import alongside built-in rules.</span>
+  </div>
+
+  {% if not custom_rules %}
+  <div class="card-body">
+    <div class="empty-state" style="padding:2rem 1rem">
+      <div class="empty-icon">🔧</div>
+      <h3>No custom rules yet</h3>
+      <p>Click "Add Custom Rule" to create your own condition-based detection rules.</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="table-wrap" style="border:none;border-radius:0">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:90px">Severity</th>
+          <th>Name</th>
+          <th>Condition</th>
+          <th>Description</th>
+          <th style="width:80px;text-align:center">Status</th>
+          <th style="width:80px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rule in custom_rules %}
+        <tr id="crow-{{ rule.id }}" {% if not rule.enabled %}style="opacity:.4"{% endif %}>
+          <td><span class="sev sev-{{ rule.severity }}">{{ rule.severity }}</span></td>
+          <td style="font-weight:600;color:var(--text)">{{ rule.name }}</td>
+          <td>
+            <span class="mono" style="font-size:.73rem;background:var(--bg3);border:1px solid var(--border);
+                  padding:.15rem .45rem;border-radius:4px;color:var(--cyan)">{{ rule.condition_type }}</span>
+            <span style="font-size:.78rem;color:var(--text2);margin-left:.35rem">"{{ rule.condition_value }}"</span>
+          </td>
+          <td style="font-size:.78rem;color:var(--dim);max-width:280px">{{ rule.description or '—' }}</td>
+          <td style="text-align:center">
+            <button class="btn btn-sm {{ 'btn-success' if rule.enabled else 'btn-secondary' }}"
+                    id="ctoggle-{{ rule.id }}"
+                    onclick="toggleCustom({{ rule.id }}, this)">
+              {{ 'On' if rule.enabled else 'Off' }}
+            </button>
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('custom_rule_delete', rule_id=rule.id) }}"
+                  onsubmit="return confirm('Delete this rule?')" style="display:inline">
+              <button class="btn btn-sm btn-danger">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ADD CUSTOM RULE MODAL -->
+<div id="addRuleModal" class="modal-overlay">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <h3>Add Custom Rule</h3>
+      <button class="modal-close" onclick="closeModal('addRuleModal')">✕</button>
+    </div>
+    <form method="post" action="{{ url_for('custom_rule_new') }}">
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Rule Name <span class="req">*</span></label>
+        <input type="text" name="name" class="form-control" required
+               placeholder="e.g. Redis Port Exposed">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Severity</label>
+          <select name="severity" class="form-control">
+            {% for s in ['CRITICAL','HIGH','MEDIUM','LOW','INFO'] %}
+            <option value="{{ s }}" {{ 'selected' if s == 'HIGH' }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Condition Type</label>
+          <select name="condition_type" class="form-control" id="condType" onchange="updateCondHint()">
+            <option value="port_open">Port Open</option>
+            <option value="service_contains">Service Contains</option>
+            <option value="version_contains">Version Contains</option>
+            <option value="port_count_gt">Open Port Count &gt;</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Condition Value <span class="req">*</span></label>
+        <input type="text" name="condition_value" id="condValue" class="form-control"
+               required placeholder="e.g. 6379">
+        <div class="form-hint" id="condHint">Port number to check (e.g. 6379 for Redis, 27017 for MongoDB)</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea name="description" class="form-control" rows="2"
+                  placeholder="What does this rule detect?"></textarea>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">Recommendation</label>
+        <textarea name="recommendation" class="form-control" rows="2"
+                  placeholder="What should be done when this fires?"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" onclick="closeModal('addRuleModal')">Cancel</button>
+      <button type="submit" class="btn btn-primary">Create Rule</button>
+    </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const condHints = {
+  'port_open':        'Port number to check (e.g. 6379 for Redis, 27017 for MongoDB, 9200 for Elasticsearch)',
+  'service_contains': 'Service name substring (e.g. "redis", "mysql", "ftp", "telnet")',
+  'version_contains': 'Version string substring (e.g. "Apache 2.2", "OpenSSH 7", "IIS 6")',
+  'port_count_gt':    'Open port count threshold as integer (e.g. 20 = fire when host has > 20 open ports)',
+};
+const condPlaceholders = {
+  'port_open': 'e.g. 6379',
+  'service_contains': 'e.g. redis',
+  'version_contains': 'e.g. Apache 2.2',
+  'port_count_gt': 'e.g. 20',
+};
+
+function updateCondHint() {
+  const t = document.getElementById('condType').value;
+  document.getElementById('condHint').textContent = condHints[t] || '';
+  document.getElementById('condValue').placeholder = condPlaceholders[t] || '';
+}
+
+async function toggleBuiltin(ruleId, btn) {
+  try {
+    const res  = await fetch(`/rules/${ruleId}/toggle`, {method: 'POST'});
+    const data = await res.json();
+    btn.textContent  = data.enabled ? 'Enabled' : 'Disabled';
+    btn.className    = 'btn btn-sm ' + (data.enabled ? 'btn-success' : 'btn-danger');
+    const row = document.getElementById('brow-' + ruleId);
+    if (row) row.style.opacity = data.enabled ? '' : '.4';
+  } catch(e) { alert('Failed to update rule'); }
+}
+
+async function toggleCustom(ruleId, btn) {
+  try {
+    await fetch(`/rules/custom/${ruleId}/toggle`, {method: 'POST'});
+    const isOn = btn.textContent.trim() === 'On';
+    btn.textContent = isOn ? 'Off' : 'On';
+    btn.className   = 'btn btn-sm ' + (!isOn ? 'btn-success' : 'btn-secondary');
+    const row = document.getElementById('crow-' + ruleId);
+    if (row) row.style.opacity = isOn ? '.4' : '';
+  } catch(e) { alert('Failed to update rule'); }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if mode == 'edit' else 'New' }} Finding — nmap_suite{% endblock %}
+{% block topbar_title %}{{ 'Edit Finding' if mode == 'edit' else 'New Finding' }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <div style="font-size:.75rem;color:var(--dim);margin-bottom:.3rem">
+      <a href="{{ url_for('findings_list') }}" style="color:var(--dim);text-decoration:none">Findings</a> /
+    </div>
+    <h1>{{ 'Edit Finding' if mode == 'edit' else 'New Finding' }}</h1>
+  </div>
+</div>
+
+<form method="post" action="{{ url_for('finding_edit', finding_id=finding.id) if mode=='edit' else url_for('finding_new') }}">
+<div class="grid-2">
+
+  <!-- LEFT COLUMN -->
+  <div style="display:flex;flex-direction:column;gap:1rem">
+    <div class="card">
+      <div class="card-header"><h3>Core Details</h3></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Title <span class="req">*</span></label>
+          <input type="text" name="title" class="form-control" required
+                 placeholder="Short descriptive title, e.g. JBoss Unauthenticated RCE"
+                 value="{{ finding.title if finding else '' }}">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Severity <span class="req">*</span></label>
+            <select name="severity" class="form-control" required>
+              {% for sev in ['CRITICAL','HIGH','MEDIUM','LOW','INFO'] %}
+              <option value="{{ sev }}"
+                {{ 'selected' if finding and finding.severity == sev else ('' if finding else ('selected' if sev == 'MEDIUM' else '')) }}>
+                {{ sev }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Status</label>
+            <select name="status" class="form-control">
+              {% for st in ['Open','In Progress','Resolved','Accepted'] %}
+              <option value="{{ st }}"
+                {{ 'selected' if finding and finding.status == st else ('' if finding else ('selected' if st == 'Open' else '')) }}>
+                {{ st }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Linked Scan</label>
+            <select name="scan_id" class="form-control">
+              <option value="">— none —</option>
+              {% for s in scans %}
+              <option value="{{ s.id }}"
+                {{ 'selected' if finding and finding.scan_id == s.id }}>
+                {{ s.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Affected Host IP</label>
+            <input type="text" name="host_ip" class="form-control"
+                   placeholder="e.g. 10.32.77.206"
+                   value="{{ finding.host_ip if finding else '' }}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tags</label>
+          <input type="text" name="tags" class="form-control"
+                 placeholder="comma-separated: rce, authentication, jboss"
+                 value="{{ (finding.tags | join(', ')) if finding and finding.tags else '' }}">
+          <div class="form-hint">Separate tags with commas.</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">CVSS Score</label>
+            <input type="number" name="cvss_score" class="form-control"
+                   step="0.1" min="0" max="10" placeholder="e.g. 9.8"
+                   value="{{ finding.cvss_score if finding and finding.cvss_score else '' }}">
+            <div class="form-hint">0.0 – 10.0 · CVSS v3 base score</div>
+          </div>
+          <div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>Impact &amp; Recommendation</h3></div>
+      <div class="card-body">
+        <div class="form-group">
+          <label class="form-label">Business Impact</label>
+          <textarea name="business_impact" class="form-control" rows="3"
+                    placeholder="What is the business risk? e.g. data breach, financial loss, regulatory fines, reputational damage">{{ finding.business_impact if finding else '' }}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Technical Impact</label>
+          <textarea name="technical_impact" class="form-control" rows="3"
+                    placeholder="What can an attacker achieve technically? e.g. RCE, privilege escalation, data exfiltration, lateral movement">{{ finding.technical_impact if finding else '' }}</textarea>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Recommendation</label>
+          <textarea name="recommendation" class="form-control" rows="3"
+                    placeholder="How should this be fixed or mitigated?">{{ finding.recommendation if finding else '' }}</textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT COLUMN -->
+  <div style="display:flex;flex-direction:column;gap:1rem">
+    <div class="card">
+      <div class="card-header"><h3>Description</h3></div>
+      <div class="card-body">
+        <div class="form-group" style="margin-bottom:0">
+          <textarea name="description" class="form-control" rows="6"
+                    placeholder="Describe the vulnerability. What is it? Where did you find it? Why does it exist?">{{ finding.description if finding else '' }}</textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>Steps to Reproduce</h3></div>
+      <div class="card-body">
+        <div class="form-group" style="margin-bottom:0">
+          <textarea name="steps_to_reproduce" class="form-control steps-box" rows="8"
+                    placeholder="1. Navigate to http://10.32.77.206:4447/
+2. Open the HTTP Invoker endpoint
+3. Send a serialized Java object payload
+4. Observe command execution in response">{{ finding.steps_to_reproduce if finding else '' }}</textarea>
+          <div class="form-hint">Step-by-step instructions to replicate the finding.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>Evidence</h3></div>
+      <div class="card-body">
+        <div class="form-group" style="margin-bottom:0">
+          <textarea name="evidence" class="form-control" rows="5"
+                    placeholder="Paste screenshots, request/response snippets, tool output, or other evidence here...">{{ finding.evidence if finding else '' }}</textarea>
+          <div class="form-hint">Raw evidence: HTTP requests, command output, screenshots (paste as text descriptions).</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ACTION BAR -->
+<div style="margin-top:1.25rem; display:flex; gap:.75rem; justify-content:flex-end">
+  <a href="{{ url_for('finding_detail', finding_id=finding.id) if mode=='edit' else url_for('findings_list') }}"
+     class="btn btn-secondary">Cancel</a>
+  <button type="submit" class="btn btn-primary">
+    {{ '💾 Save Changes' if mode == 'edit' else '＋ Create Finding' }}
+  </button>
+</div>
+
+</form>
+{% endblock %}

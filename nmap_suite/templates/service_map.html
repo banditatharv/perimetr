@@ -1,0 +1,431 @@
+{% extends "base.html" %}
+{% block title %}Service Map — nmap_suite{% endblock %}
+{% block topbar_title %}Service Map{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Service Map</h1>
+  <div class="actions">
+    <span class="text-dim" style="font-size:.82rem;align-self:center">
+      All open ports across every imported scan
+    </span>
+  </div>
+</div>
+
+<!-- TOP STATS -->
+<div class="gsm-stats">
+  <div class="gsm-stat"><strong>{{ stats.total_open }}</strong> open ports</div>
+  <div class="gsm-stat"><strong>{{ stats.unique_hosts }}</strong> unique hosts</div>
+  <div class="gsm-stat"><strong>{{ stats.unique_services }}</strong> unique services</div>
+  <div class="gsm-stat"><strong>{{ stats.categories | length }}</strong> categories</div>
+  <div class="gsm-stat tested-stat">
+    <strong>{{ stats.tested_count }}</strong>&nbsp;/&nbsp;{{ stats.total_open }} tested
+  </div>
+</div>
+
+<!-- FILTER BAR -->
+<div class="gsm-filter">
+  <input type="text" id="svcSearch" placeholder="🔎  Search IP, service, port, version, notes..."
+         value="{{ request.args.get('q','') }}" oninput="filterAll()">
+  <select id="svcState" onchange="filterAll()">
+    <option value="">All States</option>
+    <option value="open">Open</option>
+    <option value="filtered">Filtered</option>
+  </select>
+  <select id="svcCat" onchange="filterCat(this.value)">
+    <option value="">All Categories</option>
+    {% for cat_row in stats.categories %}
+    <option value="{{ cat_row.category }}">{{ cat_row.category }} ({{ cat_row.cnt }})</option>
+    {% endfor %}
+  </select>
+  <label class="flex-center gap-1" style="font-size:.82rem;color:var(--dim);cursor:pointer;white-space:nowrap">
+    <input type="checkbox" id="untestedOnly" onchange="filterAll()"> Untested only
+  </label>
+  <button class="btn btn-secondary btn-sm" onclick="clearFilters()">✕ Clear</button>
+  <button class="btn btn-secondary btn-sm" onclick="markAllVisible(true)" title="Mark all currently visible rows as tested">✓ Mark Visible Tested</button>
+  <span id="matchCount" style="font-size:.78rem;color:var(--dim);margin-left:.25rem"></span>
+</div>
+
+<!-- TWO-COLUMN LAYOUT: category sidebar + table -->
+<div class="gsm-layout">
+
+  <!-- CATEGORY SIDEBAR -->
+  <div class="gsm-cats" id="catSidebar">
+    <div class="gsm-cat-item active" data-cat="" onclick="filterCat('')">
+      <span>🌐</span> All
+      <span class="cat-count">{{ stats.total_open }}</span>
+    </div>
+    {% set cat_icons = {
+      'Remote Access':'🔐', 'Web / App Server':'🌐', 'File Transfer':'📁',
+      'Database':'🗄️', 'Monitoring':'📊', 'Messaging / RPC':'📨',
+      'Mail':'✉️', 'Directory':'📒', 'Infrastructure':'⚙️',
+      'Unknown / Wrapped':'❓', 'Other':'📦'
+    } %}
+    {% for cat_row in stats.categories %}
+    <div class="gsm-cat-item" data-cat="{{ cat_row.category }}"
+         onclick="filterCat('{{ cat_row.category }}')">
+      <span>{{ cat_icons.get(cat_row.category, '📦') }}</span>
+      {{ cat_row.category }}
+      <span class="cat-count" id="cnt-{{ cat_row.category | replace(' ','_') | replace('/','_') }}">{{ cat_row.cnt }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- MAIN TABLE -->
+  <div class="gsm-content">
+    {% if not ports %}
+    <div class="empty-state">
+      <div class="empty-icon">🗺️</div>
+      <h3>No data yet</h3>
+      <p>Import some .nmap scans to populate the service map.</p>
+      <br>
+      <a href="{{ url_for('scans_list') }}" class="btn btn-primary">Import Scans</a>
+    </div>
+    {% else %}
+
+    {% for cat, entries in by_cat.items() | sort %}
+    <div class="gsm-section" data-section="{{ cat }}" id="sec-{{ cat | replace(' ','_') | replace('/','_') }}">
+      <div class="gsm-section-header">
+        <span class="gsm-section-icon">{{ cat_icons.get(cat, '📦') }}</span>
+        <span class="gsm-section-title">{{ cat }}</span>
+        <span class="gsm-section-count" id="sec-cnt-{{ cat | replace(' ','_') | replace('/','_') }}">
+          {{ entries | length }}
+        </span>
+        <button class="btn btn-secondary btn-sm"
+                style="font-size:.72rem;padding:.2rem .55rem;margin-left:.5rem"
+                data-cat="{{ cat }}"
+                onclick="markCategoryTested(this.dataset.cat)">✓ All Tested</button>
+      </div>
+      <div class="gsm-table-wrap">
+        <table class="gsm-table">
+          <thead>
+            <tr>
+              <th>IP</th>
+              <th>Hostname</th>
+              <th>Port</th>
+              <th>State</th>
+              <th>Service</th>
+              <th>Version / Info</th>
+              <th>Scan</th>
+              <th class="col-tested">Tested</th>
+              <th class="col-note">Note</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in entries %}
+            <tr class="gsm-row{% if p.tested %} row-tested{% endif %}"
+                data-port-id="{{ p.id }}"
+                data-ip="{{ p.ip }}"
+                data-hostname="{{ p.hostname or '' }}"
+                data-port="{{ p.port }}"
+                data-service="{{ p.service }}"
+                data-version="{{ p.version }}"
+                data-state="{{ p.state }}"
+                data-cat="{{ cat }}"
+                data-scan="{{ p.scan_name }}"
+                data-tested="{{ 1 if p.tested else 0 }}"
+                data-port-note="{{ p.note or '' }}">
+              <td><span class="c-ip">{{ p.ip }}</span></td>
+              <td class="t-dim" style="font-size:.78rem">{{ p.hostname if p.hostname and p.hostname != p.ip else '—' }}</td>
+              <td><span class="c-port">{{ p.port }}/{{ p.protocol }}</span></td>
+              <td>
+                {% if 'open' in p.state %}
+                  <span class="open">● OPEN</span>
+                {% elif 'filtered' in p.state %}
+                  <span class="filtered">◌ FILTERED</span>
+                {% else %}
+                  <span style="color:var(--red);font-size:.75rem">✕ CLOSED</span>
+                {% endif %}
+              </td>
+              <td><span class="c-svc">{{ p.service }}</span></td>
+              <td class="c-ver" title="{{ p.version }}">{{ p.version or '—' }}</td>
+              <td>
+                <a href="{{ url_for('scan_detail', scan_id=p.scan_id) }}"
+                   class="c-scan" onclick="event.stopPropagation()">{{ p.scan_name }}</a>
+              </td>
+              <td class="col-tested">
+                <input type="checkbox" class="tested-cb"
+                       {% if p.tested %}checked{% endif %}
+                       onchange="toggleTested({{ p.id }}, this)"
+                       title="Mark as tested">
+              </td>
+              <td class="col-note">
+                <button class="note-btn{% if p.note %} has-note{% endif %}"
+                        onclick="openNote({{ p.id }}, this)"
+                        title="{{ (p.note or 'Add note')[:80] }}">📝</button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+
+    {% endif %}
+  </div><!-- /gsm-content -->
+</div><!-- /gsm-layout -->
+
+<!-- NOTE POPOVER -->
+<div id="notePopover" class="note-popover">
+  <div class="note-popover-header">
+    <span>📝 Port Note</span>
+    <button class="note-popover-close" onclick="closeNotePopover()">✕</button>
+  </div>
+  <textarea id="noteText" class="note-popover-textarea"
+            placeholder="Add notes about this port…&#10;e.g. credentials found, exploit tried, result"></textarea>
+  <div class="note-popover-footer">
+    <button class="btn btn-primary btn-sm" onclick="saveAndCloseNote()">Save</button>
+    <button class="btn btn-secondary btn-sm" onclick="closeNotePopover()">Cancel</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── STATE ────────────────────────────────────────────────
+let activeCat      = '';
+let activeNotePortId = null;
+const rows    = Array.from(document.querySelectorAll('.gsm-row'));
+const sections= Array.from(document.querySelectorAll('.gsm-section'));
+
+window.addEventListener('DOMContentLoaded', () => {
+  const q = document.getElementById('svcSearch').value.trim();
+  if (q) filterAll();
+});
+
+// ── CATEGORY FILTER ──────────────────────────────────────
+function filterCat(cat) {
+  activeCat = cat;
+  document.querySelectorAll('.gsm-cat-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.cat === cat);
+  });
+  document.getElementById('svcCat').value = cat;
+  filterAll();
+}
+
+// ── MAIN FILTER ──────────────────────────────────────────
+function filterAll() {
+  const q            = document.getElementById('svcSearch').value.toLowerCase().trim();
+  const state        = document.getElementById('svcState').value.toLowerCase();
+  const cat          = activeCat;
+  const untestedOnly = document.getElementById('untestedOnly').checked;
+
+  let visible = 0;
+  const catCounts = {};
+
+  rows.forEach(row => {
+    const matchCat     = !cat          || row.dataset.cat     === cat;
+    const matchState   = !state        || row.dataset.state   === state;
+    const matchUntested= !untestedOnly || row.dataset.tested  === '0';
+    const matchQ       = !q            || [
+      row.dataset.ip, row.dataset.hostname, row.dataset.port,
+      row.dataset.service, row.dataset.version, row.dataset.scan,
+      row.dataset.portNote
+    ].some(v => v && v.toLowerCase().includes(q));
+
+    const show = matchCat && matchState && matchQ && matchUntested;
+    row.style.display = show ? '' : 'none';
+
+    if (show) {
+      visible++;
+      const rc = row.dataset.cat;
+      catCounts[rc] = (catCounts[rc] || 0) + 1;
+      if (q) highlightRow(row, q);
+      else   clearHighlight(row);
+    } else {
+      clearHighlight(row);
+    }
+  });
+
+  sections.forEach(sec => {
+    const secCat    = sec.dataset.section;
+    const hasVisible= sec.querySelectorAll('.gsm-row:not([style*="display: none"]):not([style*="display:none"])').length;
+    sec.style.display = hasVisible ? '' : 'none';
+    const cntEl = document.getElementById('sec-cnt-' + secCat.replace(/ /g,'_').replace(/\//g,'_'));
+    if (cntEl) cntEl.textContent = catCounts[secCat] || 0;
+  });
+
+  document.querySelectorAll('.gsm-cat-item[data-cat]').forEach(el => {
+    const c = el.dataset.cat;
+    if (!c) return;
+    const key   = c.replace(/ /g,'_').replace(/\//g,'_');
+    const badge = document.getElementById('cnt-' + key);
+    if (badge) badge.textContent = catCounts[c] || 0;
+  });
+
+  const mc = document.getElementById('matchCount');
+  if (q || state || cat || untestedOnly) {
+    mc.textContent = `${visible} result${visible !== 1 ? 's' : ''}`;
+  } else {
+    mc.textContent = '';
+  }
+}
+
+function clearFilters() {
+  document.getElementById('svcSearch').value  = '';
+  document.getElementById('svcState').value   = '';
+  document.getElementById('untestedOnly').checked = false;
+  filterCat('');
+}
+
+// ── HIGHLIGHT ────────────────────────────────────────────
+function highlightRow(row, q) {
+  [0,1,2,4,5].forEach(i => {
+    const cell = row.cells[i];
+    if (!cell) return;
+    const inner = cell.querySelector('span') || cell;
+    const orig  = inner.getAttribute('data-orig') || inner.textContent;
+    if (!inner.hasAttribute('data-orig')) inner.setAttribute('data-orig', orig);
+    const esc   = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    inner.innerHTML = orig.replace(new RegExp(esc,'gi'), m => `<span class="hl">${m}</span>`);
+  });
+}
+function clearHighlight(row) {
+  [0,1,2,4,5].forEach(i => {
+    const cell = row.cells[i];
+    if (!cell) return;
+    const inner = cell.querySelector('span') || cell;
+    const orig  = inner.getAttribute('data-orig');
+    if (orig) { inner.textContent = orig; inner.removeAttribute('data-orig'); }
+  });
+}
+
+// ── TESTED CHECKBOX ──────────────────────────────────────
+async function toggleTested(portId, checkbox) {
+  const tested = checkbox.checked;
+  const row    = checkbox.closest('tr');
+  row.classList.toggle('row-tested', tested);
+  row.dataset.tested = tested ? '1' : '0';
+  try {
+    await fetch(`/api/ports/${portId}/annotation`, {
+      method:  'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({tested: tested})
+    });
+    updateTestedStat();
+  } catch(e) {
+    // revert on error
+    checkbox.checked = !tested;
+    row.classList.toggle('row-tested', !tested);
+    row.dataset.tested = tested ? '0' : '1';
+  }
+}
+
+function updateTestedStat() {
+  const testedCount = document.querySelectorAll('.gsm-row[data-tested="1"]').length;
+  const totalCount  = rows.length;
+  const el = document.querySelector('.tested-stat strong');
+  if (el) el.textContent = testedCount;
+}
+
+// ── NOTE POPOVER ─────────────────────────────────────────
+function openNote(portId, btn) {
+  const popover  = document.getElementById('notePopover');
+  const noteArea = document.getElementById('noteText');
+
+  // toggle off if same port
+  if (activeNotePortId === portId) {
+    closeNotePopover();
+    return;
+  }
+  // close any currently open one (don't save — user explicitly clicked elsewhere)
+  closeNotePopover();
+
+  activeNotePortId = portId;
+  const row = document.querySelector(`tr[data-port-id="${portId}"]`);
+  noteArea.value = row ? (row.dataset.portNote || '') : '';
+
+  // position below the button (fixed coords)
+  const rect = btn.getBoundingClientRect();
+  const popW = 300;
+  let left = rect.left;
+  if (left + popW > window.innerWidth - 10) left = window.innerWidth - popW - 10;
+  popover.style.top  = (rect.bottom + 4) + 'px';
+  popover.style.left = left + 'px';
+  popover.classList.add('show');
+  noteArea.focus();
+}
+
+function closeNotePopover() {
+  document.getElementById('notePopover').classList.remove('show');
+  activeNotePortId = null;
+}
+
+async function saveAndCloseNote() {
+  if (activeNotePortId === null) return;
+  const portId = activeNotePortId;
+  const note   = document.getElementById('noteText').value;
+  closeNotePopover();
+
+  try {
+    await fetch(`/api/ports/${portId}/annotation`, {
+      method:  'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body:    JSON.stringify({note: note})
+    });
+    // update row data so filter/highlight picks it up
+    const row = document.querySelector(`tr[data-port-id="${portId}"]`);
+    if (row) {
+      row.dataset.portNote = note;
+      const btn = row.querySelector('.note-btn');
+      if (btn) {
+        btn.classList.toggle('has-note', note.trim().length > 0);
+        btn.title = note.trim() ? note.substring(0, 80) : 'Add note';
+      }
+    }
+  } catch(e) {}
+}
+
+// close popover when clicking outside it
+document.addEventListener('click', function(e) {
+  const popover = document.getElementById('notePopover');
+  if (popover.classList.contains('show') &&
+      !popover.contains(e.target) &&
+      !e.target.classList.contains('note-btn')) {
+    closeNotePopover();
+  }
+});
+
+// ── BULK TEST ────────────────────────────────────────────
+async function markCategoryTested(cat) {
+  const targets  = rows.filter(r => r.dataset.cat === cat && r.style.display !== 'none');
+  const portIds  = targets.map(r => parseInt(r.dataset.portId)).filter(Boolean);
+  if (!portIds.length) return;
+  try {
+    await fetch('/api/ports/bulk-test', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({port_ids: portIds, tested: true})
+    });
+    targets.forEach(row => {
+      row.classList.add('row-tested');
+      row.dataset.tested = '1';
+      const cb = row.querySelector('.tested-cb');
+      if (cb) cb.checked = true;
+    });
+    updateTestedStat();
+  } catch(e) { alert('Failed to update'); }
+}
+
+async function markAllVisible(tested) {
+  const targets = rows.filter(r => r.style.display !== 'none');
+  const portIds = targets.map(r => parseInt(r.dataset.portId)).filter(Boolean);
+  if (!portIds.length) return;
+  try {
+    await fetch('/api/ports/bulk-test', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({port_ids: portIds, tested: tested})
+    });
+    targets.forEach(row => {
+      row.classList.toggle('row-tested', tested);
+      row.dataset.tested = tested ? '1' : '0';
+      const cb = row.querySelector('.tested-cb');
+      if (cb) cb.checked = tested;
+    });
+    updateTestedStat();
+  } catch(e) { alert('Failed to update'); }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Projects — nmap_suite{% endblock %}
+{% block topbar_title %}Projects{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Projects</h1>
+  <div class="actions">
+    <button class="btn btn-primary" onclick="openModal('new-project-modal')">＋ New Project</button>
+  </div>
+</div>
+
+<p class="text-dim mb-3" style="font-size:.85rem">
+  Projects group related scans together. Deleting a project removes all its scans, hosts, ports, and auto-findings in one go.
+</p>
+
+{% if projects %}
+<div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(320px,1fr)); gap:1rem;">
+  {% for p in projects %}
+  <div class="card" style="border-top: 3px solid {{ p.color }}; cursor:pointer"
+       onclick="location.href='{{ url_for('project_detail', project_id=p.id) }}'">
+    <div class="card-header" style="background:transparent; border-bottom:1px solid var(--border)">
+      <span style="font-size:1.1rem">📁</span>
+      <h3 style="color:{{ p.color }}">{{ p.name }}</h3>
+      <div class="card-actions" onclick="event.stopPropagation()">
+        <button class="btn btn-secondary btn-sm"
+                onclick="openEditProject({{ p.id }}, '{{ p.name|e }}', '{{ p.description|e }}', '{{ p.color }}')">
+          ✏️
+        </button>
+        <form method="post" action="{{ url_for('project_delete', project_id=p.id) }}"
+              onsubmit="return confirm('DELETE project \'{{ p.name }}\' and ALL {{ p.scan_count }} scan(s)?\n\nThis cannot be undone.')">
+          <button class="btn btn-danger btn-sm">🗑 Delete All</button>
+        </form>
+      </div>
+    </div>
+    <div class="card-body">
+      {% if p.description %}
+      <p style="font-size:.83rem; color:var(--dim); margin-bottom:.85rem; line-height:1.5">{{ p.description }}</p>
+      {% endif %}
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:.5rem; text-align:center">
+        <div style="background:var(--bg3); border-radius:var(--radius); padding:.5rem">
+          <div style="font-size:1.3rem; font-weight:700; color:var(--blue)">{{ p.scan_count }}</div>
+          <div style="font-size:.65rem; color:var(--dim); text-transform:uppercase">Scans</div>
+        </div>
+        <div style="background:var(--bg3); border-radius:var(--radius); padding:.5rem">
+          <div style="font-size:1.3rem; font-weight:700; color:var(--green)">{{ p.host_count }}</div>
+          <div style="font-size:.65rem; color:var(--dim); text-transform:uppercase">Hosts</div>
+        </div>
+        <div style="background:var(--bg3); border-radius:var(--radius); padding:.5rem">
+          <div style="font-size:1.3rem; font-weight:700; color:var(--crit-fg)">{{ p.finding_count }}</div>
+          <div style="font-size:.65rem; color:var(--dim); text-transform:uppercase">Auto</div>
+        </div>
+        <div style="background:var(--bg3); border-radius:var(--radius); padding:.5rem">
+          <div style="font-size:1.3rem; font-weight:700; color:var(--purple)">{{ p.mf_count }}</div>
+          <div style="font-size:.65rem; color:var(--dim); text-transform:uppercase">Findings</div>
+        </div>
+      </div>
+      <div style="margin-top:.75rem; font-size:.72rem; color:var(--dim)">
+        Created {{ p.created_at[:10] }}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">📁</div>
+  <h3>No projects yet</h3>
+  <p>Create a project to group your scans and manage them together.</p>
+  <br>
+  <button class="btn btn-primary" onclick="openModal('new-project-modal')">＋ Create First Project</button>
+</div>
+{% endif %}
+
+<!-- NEW PROJECT MODAL -->
+<div class="modal-overlay" id="new-project-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="projectModalTitle">New Project</h3>
+      <button class="modal-close" onclick="closeModal('new-project-modal')">✕</button>
+    </div>
+    <form id="projectForm" method="post" action="{{ url_for('project_new') }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Project Name <span class="req">*</span></label>
+          <input type="text" name="name" id="projectName" class="form-control" required
+                 placeholder="e.g. Corp Internal Q2, Client X Pentest">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea name="description" id="projectDesc" class="form-control" rows="3"
+                    placeholder="Scope, target, engagement details..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Colour</label>
+          <div style="display:flex; gap:.5rem; flex-wrap:wrap; align-items:center">
+            {% for color in ['#58a6ff','#3fb950','#f0883e','#f85149','#bc8cff','#e3b341','#39d353','#ff7b72'] %}
+            <label style="cursor:pointer">
+              <input type="radio" name="color" value="{{ color }}"
+                     {% if color == '#58a6ff' %}checked{% endif %}
+                     style="display:none" onchange="updateSwatch(this)">
+              <div class="color-swatch" style="width:24px;height:24px;border-radius:50%;background:{{ color }};
+                   border:2px solid transparent; transition:.15s"
+                   onclick="this.previousElementSibling.click()"></div>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('new-project-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="projectSubmitBtn">Create Project</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateSwatch(input) {
+  document.querySelectorAll('.color-swatch').forEach(s => s.style.border = '2px solid transparent');
+  input.nextElementSibling.style.border = '2px solid white';
+}
+// Highlight selected on load
+document.querySelector('input[name="color"]:checked')?.nextElementSibling
+  ?.style.setProperty('border', '2px solid white');
+
+function openEditProject(id, name, desc, color) {
+  document.getElementById('projectModalTitle').textContent = 'Edit Project';
+  document.getElementById('projectName').value = name;
+  document.getElementById('projectDesc').value = desc;
+  document.querySelectorAll('input[name="color"]').forEach(r => {
+    r.checked = r.value === color;
+    if (r.checked) r.nextElementSibling.style.border = '2px solid white';
+    else r.nextElementSibling.style.border = '2px solid transparent';
+  });
+  document.getElementById('projectSubmitBtn').textContent = 'Save Changes';
+  document.getElementById('projectForm').action = `/projects/${id}/edit`;
+  openModal('new-project-modal');
+}
+
+document.querySelector('[onclick="openModal(\'new-project-modal\')"]')
+  ?.addEventListener('click', () => {
+    document.getElementById('projectModalTitle').textContent = 'New Project';
+    document.getElementById('projectForm').reset();
+    document.getElementById('projectForm').action = '{{ url_for("project_new") }}';
+    document.getElementById('projectSubmitBtn').textContent = 'Create Project';
+    document.querySelectorAll('.color-swatch').forEach(s => s.style.border = '2px solid transparent');
+    document.querySelector('input[name="color"]')?.nextElementSibling
+      ?.style.setProperty('border', '2px solid white');
+  });
+</script>
+{% endblock %}

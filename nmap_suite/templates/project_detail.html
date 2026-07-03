@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — nmap_suite{% endblock %}
+{% block topbar_title %}{{ project.name }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <div style="font-size:.75rem;color:var(--dim);margin-bottom:.3rem">
+      <a href="{{ url_for('projects_list') }}" style="color:var(--dim);text-decoration:none">Projects</a> /
+    </div>
+    <h1 style="display:flex;align-items:center;gap:.6rem">
+      <span style="color:{{ project.color }}">📁</span>
+      {{ project.name }}
+    </h1>
+  </div>
+  <div class="actions">
+    <button class="btn btn-secondary"
+            onclick="openEditProject({{ project.id }}, '{{ project.name|e }}', '{{ project.description|e }}', '{{ project.color }}')">
+      ✏️ Edit
+    </button>
+    <form method="post" action="{{ url_for('project_delete', project_id=project.id) }}"
+          onsubmit="return confirm('DELETE project \'{{ project.name }}\' and ALL {{ scans|length }} scan(s)?\n\nThis will permanently remove:\n• {{ scans|length }} scans\n• All hosts, ports, and auto-findings\n\nManual findings and notes will be kept.\n\nThis cannot be undone.')">
+      <button class="btn btn-danger">🗑 Delete Entire Project</button>
+    </form>
+  </div>
+</div>
+
+{% if project.description %}
+<div class="card mb-3">
+  <div class="card-body" style="padding:.85rem 1.25rem; color:var(--dim); font-size:.85rem; line-height:1.6">
+    {{ project.description }}
+  </div>
+</div>
+{% endif %}
+
+<!-- STATS ROW -->
+<div class="stat-grid mb-3">
+  <div class="stat-card blue">
+    <div class="s-label">Scans</div>
+    <div class="s-value">{{ scans|length }}</div>
+  </div>
+  <div class="stat-card green">
+    <div class="s-label">Total Hosts</div>
+    <div class="s-value">{{ scans | sum(attribute='host_count') }}</div>
+  </div>
+  <div class="stat-card blue">
+    <div class="s-label">Open Ports</div>
+    <div class="s-value">{{ scans | sum(attribute='port_count') }}</div>
+  </div>
+  <div class="stat-card crit">
+    <div class="s-label">Auto Critical</div>
+    <div class="s-value">{{ auto_findings | selectattr('severity','equalto','CRITICAL') | list | length }}</div>
+  </div>
+  <div class="stat-card high">
+    <div class="s-label">Auto High</div>
+    <div class="s-value">{{ auto_findings | selectattr('severity','equalto','HIGH') | list | length }}</div>
+  </div>
+  <div class="stat-card purple">
+    <div class="s-label">My Findings</div>
+    <div class="s-value">{{ manual_findings|length }}</div>
+  </div>
+</div>
+
+<div class="tabs tab-group">
+  <button class="tab active" data-tab="tab-proj-scans">🗂️ Scans ({{ scans|length }})</button>
+  <button class="tab" data-tab="tab-proj-autofindings">⚡ Auto Findings ({{ auto_findings|length }})</button>
+  <button class="tab" data-tab="tab-proj-findings">🎯 My Findings ({{ manual_findings|length }})</button>
+</div>
+
+<!-- ── SCANS TAB ───────────────────────────── -->
+<div class="tab-pane active" id="tab-proj-scans">
+  <div class="flex mb-2 gap-1">
+    <button class="btn btn-secondary btn-sm" onclick="openModal('assign-modal')">
+      ＋ Add Existing Scan
+    </button>
+    <a href="{{ url_for('scans_list') }}" class="btn btn-primary btn-sm">＋ Import New Scan</a>
+  </div>
+
+  {% if scans %}
+  <div class="table-wrap">
+  <table>
+    <thead><tr>
+      <th>Name</th><th>Hosts</th><th>Open Ports</th>
+      <th>Auto Findings</th><th>Scan Date</th><th>Actions</th>
+    </tr></thead>
+    <tbody>
+      {% for s in scans %}
+      <tr>
+        <td>
+          <a href="{{ url_for('scan_detail', scan_id=s.id) }}"
+             style="color:var(--blue);text-decoration:none;font-weight:600">{{ s.name }}</a>
+        </td>
+        <td class="t-dim">{{ s.host_count }}</td>
+        <td style="color:var(--cyan)">{{ s.port_count }}</td>
+        <td>
+          {% if s.finding_count %}
+            <span class="sev sev-CRITICAL">{{ s.finding_count }}</span>
+          {% else %}<span class="t-dim">—</span>{% endif %}
+        </td>
+        <td class="t-dim">{{ (s.scan_date or '')[:10] }}</td>
+        <td>
+          <div class="flex gap-1">
+            <a href="{{ url_for('scan_detail', scan_id=s.id) }}" class="btn btn-secondary btn-sm">View</a>
+            <form method="post" action="{{ url_for('delete_scan', scan_id=s.id) }}"
+                  onsubmit="return confirm('Delete scan {{ s.name }}?')">
+              <button class="btn btn-danger btn-sm">Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🗂️</div>
+    <h3>No scans in this project</h3>
+    <p>Import a scan and assign it here, or add an existing scan.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── AUTO FINDINGS TAB ──────────────────── -->
+<div class="tab-pane" id="tab-proj-autofindings">
+  {% if auto_findings %}
+  <div class="findings-list">
+    {% for f in auto_findings %}
+    <div class="finding-row {{ f.severity }}">
+      <div style="min-width:100px">
+        <span class="sev sev-{{ f.severity }}">{{ f.severity }}</span>
+        <div style="font-size:.68rem;color:var(--dim);margin-top:.25rem">{{ f.rule_id }}</div>
+      </div>
+      <div class="fr-body">
+        <div class="fr-title">{{ f.name }}</div>
+        <div class="fr-desc">
+          <span class="mono" style="color:var(--purple)">{{ f.ip }}</span> · {{ f.description }}
+        </div>
+        <details style="margin-top:.4rem">
+          <summary style="font-size:.75rem;color:var(--dim);cursor:pointer">Detail ▸</summary>
+          <div style="font-size:.78rem;color:var(--dim);margin-top:.4rem;line-height:1.6">{{ f.detail }}</div>
+          <div class="fr-rec" style="margin-top:.3rem">✎ {{ f.recommendation }}</div>
+        </details>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state"><div class="empty-icon">✅</div><p>No auto findings.</p></div>
+  {% endif %}
+</div>
+
+<!-- ── MY FINDINGS TAB ────────────────────── -->
+<div class="tab-pane" id="tab-proj-findings">
+  <div class="flex mb-2">
+    <a href="{{ url_for('finding_new') }}" class="btn btn-primary btn-sm">＋ Add Finding</a>
+  </div>
+  {% if manual_findings %}
+  <div class="findings-list">
+    {% for f in manual_findings %}
+    <div class="finding-row {{ f.severity }}" style="cursor:pointer"
+         onclick="location.href='{{ url_for('finding_detail', finding_id=f.id) }}'">
+      <div style="min-width:100px">
+        <span class="sev sev-{{ f.severity }}">{{ f.severity }}</span>
+        <div style="margin-top:.3rem">
+          <span class="status-badge status-{{ f.status.replace(' ','-') }}">{{ f.status }}</span>
+        </div>
+      </div>
+      <div class="fr-body">
+        <div class="fr-title">{{ f.title }}</div>
+        <div class="fr-desc">
+          {% if f.host_ip %}<span class="mono" style="color:var(--purple)">{{ f.host_ip }}</span> · {% endif %}
+          {{ f.description[:100] }}{% if f.description|length > 100 %}...{% endif %}
+        </div>
+      </div>
+      <div style="font-size:.72rem;color:var(--dim)">{{ f.created_at[:10] }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🎯</div><p>No manual findings.</p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ASSIGN SCAN MODAL -->
+<div class="modal-overlay" id="assign-modal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h3>Add Existing Scan to Project</h3>
+      <button class="modal-close" onclick="closeModal('assign-modal')">✕</button>
+    </div>
+    <form method="post" action="{{ url_for('project_assign_scan', project_id=project.id) }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Select Scan</label>
+          <select name="scan_id" class="form-control" required>
+            <option value="">— choose scan —</option>
+            {% for s in all_scans %}
+            {% if not s.project_id or s.project_id != project.id %}
+            <option value="{{ s.id }}">{{ s.name }}{% if s.project_name %} (from: {{ s.project_name }}){% endif %}</option>
+            {% endif %}
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('assign-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add to Project</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- EDIT PROJECT MODAL -->
+<div class="modal-overlay" id="edit-project-modal">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h3>Edit Project</h3>
+      <button class="modal-close" onclick="closeModal('edit-project-modal')">✕</button>
+    </div>
+    <form id="editProjectForm" method="post" action="{{ url_for('project_edit', project_id=project.id) }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Name <span class="req">*</span></label>
+          <input type="text" name="name" id="editProjectName" class="form-control" required value="{{ project.name }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea name="description" class="form-control" rows="3">{{ project.description }}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Colour</label>
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+            {% for color in ['#58a6ff','#3fb950','#f0883e','#f85149','#bc8cff','#e3b341','#39d353','#ff7b72'] %}
+            <label style="cursor:pointer">
+              <input type="radio" name="color" value="{{ color }}"
+                     {% if project.color == color %}checked{% endif %}
+                     style="display:none" onchange="updateSwatchEdit(this)">
+              <div class="color-swatch-edit" style="width:24px;height:24px;border-radius:50%;
+                   background:{{ color }};border:{{ '2px solid white' if project.color == color else '2px solid transparent' }};transition:.15s"
+                   onclick="this.previousElementSibling.click()"></div>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('edit-project-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openEditProject(id, name, desc, color) {
+  openModal('edit-project-modal');
+}
+function updateSwatchEdit(input) {
+  document.querySelectorAll('.color-swatch-edit').forEach(s => s.style.border = '2px solid transparent');
+  input.nextElementSibling.style.border = '2px solid white';
+}
+</script>
+{% endblock %}

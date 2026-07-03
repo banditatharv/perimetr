@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Findings — nmap_suite{% endblock %}
+{% block topbar_title %}Findings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Findings</h1>
+  <div class="actions">
+    <a href="{{ url_for('finding_new') }}" class="btn btn-primary">＋ New Finding</a>
+  </div>
+</div>
+
+<div class="tabs tab-group">
+  <button class="tab active" data-tab="tab-manual">🎯 My Findings ({{ findings|length }})</button>
+  <button class="tab" data-tab="tab-auto">⚡ Auto Findings ({{ auto_findings|length }})</button>
+</div>
+
+<!-- ── MANUAL FINDINGS ─────────────────────── -->
+<div class="tab-pane active" id="tab-manual">
+  <div class="filter-bar mb-2">
+    <input type="text" id="findSearch" placeholder="🔎 Search title, IP, description..."
+           oninput="filterFindings()" style="width:300px">
+    <select id="findSev" onchange="filterFindings()">
+      <option value="">All Severities</option>
+      <option value="CRITICAL">Critical</option>
+      <option value="HIGH">High</option>
+      <option value="MEDIUM">Medium</option>
+      <option value="LOW">Low</option>
+      <option value="INFO">Info</option>
+    </select>
+    <select id="findStatus" onchange="filterFindings()">
+      <option value="">All Statuses</option>
+      <option value="Open">Open</option>
+      <option value="In Progress">In Progress</option>
+      <option value="Resolved">Resolved</option>
+      <option value="Accepted">Accepted</option>
+    </select>
+    <select id="findScan" onchange="filterFindings()">
+      <option value="">All Scans</option>
+      {% for s in scans %}<option value="{{ s.name }}">{{ s.name }}</option>{% endfor %}
+    </select>
+  </div>
+
+  {% if findings %}
+  <div class="findings-list" id="findList">
+    {% for f in findings %}
+    <div class="finding-row {{ f.severity }}"
+         data-sev="{{ f.severity }}" data-status="{{ f.status }}"
+         data-scan="{{ f.scan_name or '' }}"
+         style="cursor:pointer"
+         onclick="location.href='{{ url_for('finding_detail', finding_id=f.id) }}'">
+      <div style="min-width:100px">
+        <span class="sev sev-{{ f.severity }}">{{ f.severity }}</span>
+        <div style="margin-top:.3rem">
+          <span class="status-badge status-{{ f.status.replace(' ','-') }}">{{ f.status }}</span>
+        </div>
+      </div>
+      <div class="fr-body">
+        <div class="fr-title">{{ f.title }}</div>
+        <div class="fr-desc">
+          {% if f.host_ip %}<span class="mono" style="color:var(--purple)">{{ f.host_ip }}</span> · {% endif %}
+          {% if f.scan_name %}<span style="color:var(--blue);font-size:.75rem">{{ f.scan_name }}</span> · {% endif %}
+          {{ f.description[:100] }}{% if f.description|length > 100 %}...{% endif %}
+        </div>
+        {% if f.tags %}
+        <div style="margin-top:.35rem;display:flex;gap:.3rem;flex-wrap:wrap">
+          {% for tag in f.tags %}<span class="tag">{{ tag }}</span>{% endfor %}
+        </div>
+        {% endif %}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.4rem;flex-shrink:0">
+        <span style="font-size:.72rem;color:var(--dim)">{{ f.created_at[:10] }}</span>
+        <div class="flex gap-1" onclick="event.stopPropagation()">
+          <a href="{{ url_for('finding_edit', finding_id=f.id) }}" class="btn btn-secondary btn-sm">Edit</a>
+          <form method="post" action="{{ url_for('finding_delete', finding_id=f.id) }}"
+                onsubmit="return confirm('Delete finding?')">
+            <button class="btn btn-danger btn-sm">Del</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🎯</div>
+    <h3>No findings yet</h3>
+    <p>Document your security findings here.</p>
+    <br>
+    <a href="{{ url_for('finding_new') }}" class="btn btn-primary">＋ Create First Finding</a>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── AUTO FINDINGS ───────────────────────── -->
+<div class="tab-pane" id="tab-auto">
+  <div class="filter-bar mb-2">
+    <input type="text" id="autoSearch" placeholder="🔎 Search..." oninput="filterAuto()" style="width:300px">
+    <select id="autoSev" onchange="filterAuto()">
+      <option value="">All Severities</option>
+      <option value="CRITICAL">Critical</option>
+      <option value="HIGH">High</option>
+      <option value="MEDIUM">Medium</option>
+      <option value="INFO">Info</option>
+    </select>
+  </div>
+  {% if auto_findings %}
+  <div class="findings-list" id="autoList">
+    {% for f in auto_findings %}
+    <div class="finding-row {{ f.severity }}" data-sev="{{ f.severity }}">
+      <div style="min-width:100px">
+        <span class="sev sev-{{ f.severity }}">{{ f.severity }}</span>
+        <div style="font-size:.68rem;color:var(--dim);margin-top:.25rem">{{ f.rule_id }}</div>
+      </div>
+      <div class="fr-body">
+        <div class="fr-title">{{ f.name }}</div>
+        <div class="fr-desc">
+          <span class="mono" style="color:var(--purple)">{{ f.ip }}</span>
+          {% if f.hostname and f.hostname != f.ip %}({{ f.hostname }}){% endif %}
+           · {{ f.description }}
+        </div>
+        <details style="margin-top:.5rem">
+          <summary style="font-size:.75rem;color:var(--dim);cursor:pointer">
+            Show detail &amp; recommendation ▸
+          </summary>
+          <div style="margin-top:.5rem;font-size:.78rem;color:var(--dim);line-height:1.6">
+            {{ f.detail }}
+          </div>
+          <div class="fr-rec" style="margin-top:.4rem">✎ {{ f.recommendation }}</div>
+        </details>
+      </div>
+      <div style="font-size:.72rem;color:var(--dim);white-space:nowrap">
+        {% if f.scan_name %}<span style="color:var(--blue)">{{ f.scan_name }}</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">✅</div>
+    <h3>No auto findings</h3>
+    <p>Import scans to run the fingerprint engine.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterFindings() {
+  const q  = document.getElementById('findSearch').value.toLowerCase();
+  const sv = document.getElementById('findSev').value;
+  const st = document.getElementById('findStatus').value;
+  const sc = document.getElementById('findScan').value;
+  document.querySelectorAll('#findList .finding-row').forEach(r => {
+    const txt  = r.innerText.toLowerCase();
+    const rsv  = r.dataset.sev    || '';
+    const rst  = r.dataset.status || '';
+    const rsc  = r.dataset.scan   || '';
+    r.style.display =
+      (!q  || txt.includes(q)) &&
+      (!sv || rsv === sv) &&
+      (!st || rst === st) &&
+      (!sc || rsc === sc) ? '' : 'none';
+  });
+}
+function filterAuto() {
+  const q  = document.getElementById('autoSearch').value.toLowerCase();
+  const sv = document.getElementById('autoSev').value;
+  document.querySelectorAll('#autoList .finding-row').forEach(r => {
+    const txt = r.innerText.toLowerCase();
+    const rsv = r.dataset.sev || '';
+    r.style.display = (!q || txt.includes(q)) && (!sv || rsv === sv) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

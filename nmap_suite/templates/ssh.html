@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}SSH Audit Findings — nmap_suite{% endblock %}
+{% block topbar_title %}SSH Audit Findings{% endblock %}
+
+{# severity + algo-type presentation maps (ssh severities have no sev-* CSS class) #}
+{% set sev_order = ['fail','warn','rec_remove','rec_add'] %}
+{% set sev_label = {'fail':'FAIL','warn':'WARN','rec_remove':'REMOVE','rec_add':'ADD'} %}
+{% set sev_color = {'fail':'var(--red)','warn':'var(--yellow)','rec_remove':'var(--purple)','rec_add':'var(--green)'} %}
+{% set type_label = {'kex':'Key Exchange','key':'Host Key','enc':'Encryption','mac':'MAC','rec':'Recommendation'} %}
+
+{% macro sev_badge(sev) %}
+  <span style="display:inline-block;padding:.12rem .5rem;border-radius:4px;font-size:.68rem;font-weight:700;
+               color:#0d1117;background:{{ sev_color.get(sev,'var(--dim)') }}">{{ sev_label.get(sev, sev|upper) }}</span>
+{% endmacro %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>🔑 SSH Audit Findings</h1>
+    <div class="t-dim" style="font-size:.8rem;margin-top:.2rem">
+      Weak/deprecated algorithms from ssh-audit · {{ findings|length }} finding(s)
+    </div>
+  </div>
+</div>
+
+{% if findings %}
+<div class="flex flex-wrap gap-1 mb-3">
+  {% for sev in sev_order %}
+    {% set n = findings|selectattr('severity','equalto',sev)|list|length %}
+    {% if n %}{{ sev_badge(sev) }} <span class="t-dim" style="font-size:.72rem;margin-right:.6rem">{{ n }}</span>{% endif %}
+  {% endfor %}
+</div>
+
+<div class="filter-bar">
+  <input type="text" id="sSearch" placeholder="🔎 Search host, algorithm, reason..."
+         oninput="filterSsh()" style="width:340px">
+  <select id="sSev" onchange="filterSsh()">
+    <option value="">All Severities</option>
+    {% for sev in sev_order %}<option value="{{ sev }}">{{ sev_label[sev] }}</option>{% endfor %}
+  </select>
+</div>
+
+<div class="table-wrap">
+<table>
+  <thead><tr>
+    <th onclick="sortTable('sTbl',0)">Severity ↕</th>
+    <th onclick="sortTable('sTbl',1)">Host ↕</th>
+    <th onclick="sortTable('sTbl',2)">Type ↕</th>
+    <th onclick="sortTable('sTbl',3)">Algorithm ↕</th>
+    <th>Reason</th>
+    <th onclick="sortTable('sTbl',5)">Scan ↕</th>
+  </tr></thead>
+  <tbody id="sTbl">
+    {% for f in findings %}
+    <tr data-sev="{{ f.severity }}">
+      <td>{{ sev_badge(f.severity) }}</td>
+      <td class="mono" style="color:var(--purple)">{{ f.host }}</td>
+      <td class="t-dim">{{ type_label.get(f.algo_type, f.algo_type) }}</td>
+      <td class="t-service mono">{{ f.algo_name }}</td>
+      <td class="t-dim" style="font-size:.8rem">{{ f.reason or '—' }}</td>
+      <td>
+        <a href="{{ url_for('scan_detail', scan_id=f.scan_id) }}"
+           style="color:var(--blue);text-decoration:none">{{ f.scan_name }}</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="empty-icon">🔑</div>
+  <h3>No SSH audit findings imported</h3>
+  <p>Run an ssh-audit scan and import its raw output:<br>
+     <code>perimetr import --project NAME --ssh-file output_RAW.txt</code></p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterSsh() {
+  const q  = document.getElementById('sSearch').value.toLowerCase();
+  const sv = document.getElementById('sSev').value;
+  document.querySelectorAll('#sTbl tr').forEach(r => {
+    const txt = r.innerText.toLowerCase();
+    const rs  = r.dataset.sev || '';
+    r.style.display = (!q || txt.includes(q)) && (!sv || rs === sv) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

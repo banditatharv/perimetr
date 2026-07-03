@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — nmap_suite{% endblock %}
+{% block topbar_title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Overview</h1>
+  <div class="actions">
+    <a href="{{ url_for('scans_list') }}" class="btn btn-primary">＋ Import Scan</a>
+    <a href="{{ url_for('finding_new') }}" class="btn btn-secondary">＋ Add Finding</a>
+  </div>
+</div>
+
+<!-- STAT CARDS -->
+<div class="stat-grid">
+  <div class="stat-card blue">
+    <div class="s-label">Scans</div>
+    <div class="s-value">{{ stats.scans }}</div>
+  </div>
+  <div class="stat-card green">
+    <div class="s-label">Hosts Up</div>
+    <div class="s-value">{{ stats.hosts }}</div>
+  </div>
+  <div class="stat-card blue">
+    <div class="s-label">Open Ports</div>
+    <div class="s-value">{{ stats.ports }}</div>
+  </div>
+  <div class="stat-card crit">
+    <div class="s-label">Auto Critical</div>
+    <div class="s-value">{{ stats.crit }}</div>
+  </div>
+  <div class="stat-card high">
+    <div class="s-label">Auto High</div>
+    <div class="s-value">{{ stats.high }}</div>
+  </div>
+  <div class="stat-card purple">
+    <div class="s-label">Manual Findings</div>
+    <div class="s-value">{{ stats.manual_findings }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="s-label">Open Findings</div>
+    <div class="s-value" style="color:var(--orange)">{{ stats.mf_open }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="s-label">Notes</div>
+    <div class="s-value" style="color:var(--yellow)">{{ stats.notes }}</div>
+  </div>
+</div>
+
+<div class="grid-2 mb-3">
+  <!-- PINNED NOTES -->
+  <div class="card">
+    <div class="card-header">
+      <h3>📌 Pinned Notes</h3>
+      <div class="card-actions">
+        <a href="{{ url_for('notes_list') }}" class="btn btn-secondary btn-sm">View All</a>
+      </div>
+    </div>
+    <div class="card-body">
+      {% if pinned_notes %}
+        <div style="display:flex; flex-direction:column; gap:.75rem;">
+          {% for note in pinned_notes %}
+          <div class="note-card color-{{ note.color }} pinned" style="cursor:pointer"
+               onclick="location.href='{{ url_for('notes_list') }}'">
+            <div class="note-card-header">
+              <div class="note-card-title">{{ note.title }}</div>
+              <span class="note-pin-icon">📌</span>
+            </div>
+            <div class="note-card-body">{{ note.content[:150] }}{% if note.content|length > 150 %}...{% endif %}</div>
+            <div class="note-card-footer">
+              {% if note.scan_name %}<span>{{ note.scan_name }}</span> · {% endif %}
+              <span>{{ note.updated_at[:10] }}</span>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state" style="padding:1.5rem">
+          <div class="empty-icon">📌</div>
+          <p>No pinned notes yet. Pin a note to keep it here.</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- RECENT FINDINGS -->
+  <div class="card">
+    <div class="card-header">
+      <h3>🎯 Recent Findings</h3>
+      <div class="card-actions">
+        <a href="{{ url_for('finding_new') }}" class="btn btn-primary btn-sm">＋ New</a>
+        <a href="{{ url_for('findings_list') }}" class="btn btn-secondary btn-sm">View All</a>
+      </div>
+    </div>
+    <div class="card-body">
+      {% if recent_findings %}
+        <div style="display:flex; flex-direction:column; gap:.6rem;">
+          {% for f in recent_findings %}
+          <div class="finding-row {{ f.severity }}" style="cursor:pointer"
+               onclick="location.href='{{ url_for('finding_detail', finding_id=f.id) }}'">
+            <div>
+              <span class="sev sev-{{ f.severity }}">{{ f.severity }}</span>
+            </div>
+            <div class="fr-body">
+              <div class="fr-title">{{ f.title }}</div>
+              <div class="fr-desc">
+                {% if f.host_ip %}<span class="mono" style="color:var(--purple)">{{ f.host_ip }}</span> · {% endif %}
+                <span class="status-badge status-{{ f.status.replace(' ','-') }}">{{ f.status }}</span>
+                <span class="text-dim" style="font-size:.75rem; margin-left:.4rem">{{ f.created_at[:10] }}</span>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state" style="padding:1.5rem">
+          <div class="empty-icon">🎯</div>
+          <p>No findings yet.</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- SCANS LIST -->
+  <div class="card">
+    <div class="card-header">
+      <h3>🗂️ Recent Scans</h3>
+      <div class="card-actions">
+        <a href="{{ url_for('scans_list') }}" class="btn btn-secondary btn-sm">All Scans</a>
+      </div>
+    </div>
+    <div class="card-body" style="padding:0">
+      {% if scans %}
+      <table>
+        <thead><tr>
+          <th>Name</th><th>Hosts</th><th>Ports</th><th>Findings</th><th>Date</th>
+        </tr></thead>
+        <tbody>
+          {% for s in scans[:8] %}
+          <tr style="cursor:pointer" onclick="location.href='{{ url_for('scan_detail', scan_id=s.id) }}'">
+            <td><span style="color:var(--blue)">{{ s.name }}</span></td>
+            <td class="t-dim">{{ s.host_count }}</td>
+            <td class="t-dim">{{ s.port_count }}</td>
+            <td>
+              {% if s.finding_count %}
+              <span class="sev sev-CRITICAL" style="font-size:.65rem">{{ s.finding_count }}</span>
+              {% else %}<span class="t-dim">0</span>{% endif %}
+            </td>
+            <td class="t-dim" style="font-size:.75rem">{{ (s.scan_date or s.imported_at)[:10] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <div class="empty-state">
+          <div class="empty-icon">🗂️</div>
+          <h3>No scans imported</h3>
+          <p><a href="{{ url_for('scans_list') }}" style="color:var(--blue)">Import your first .nmap file</a></p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ACTIVITY LOG -->
+  <div class="card">
+    <div class="card-header"><h3>🕐 Activity</h3></div>
+    <div class="card-body">
+      {% if activity %}
+      <div class="activity-feed">
+        {% for a in activity %}
+        <div class="activity-item">
+          <div class="activity-dot {{ a.action }}"></div>
+          <div class="activity-text">
+            <strong style="color:var(--text2)">{{ a.action }}</strong>
+            {{ a.entity_type }} — {{ a.detail }}
+          </div>
+          <div class="activity-time">{{ a.created_at[11:16] }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+        <div class="empty-state" style="padding:1.5rem">
+          <div class="empty-icon">🕐</div>
+          <p>No activity yet.</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

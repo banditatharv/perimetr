@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}{{ finding.title }} — nmap_suite{% endblock %}
+{% block topbar_title %}Finding Detail{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <div style="font-size:.75rem;color:var(--dim);margin-bottom:.3rem">
+      <a href="{{ url_for('findings_list') }}" style="color:var(--dim);text-decoration:none">Findings</a> /
+    </div>
+    <h1>{{ finding.title }}</h1>
+  </div>
+  <div class="actions">
+    <a href="{{ url_for('finding_edit', finding_id=finding.id) }}" class="btn btn-secondary">✏️ Edit</a>
+    <form method="post" action="{{ url_for('finding_delete', finding_id=finding.id) }}"
+          onsubmit="return confirm('Permanently delete this finding?')" style="display:inline">
+      <button class="btn btn-danger">🗑 Delete</button>
+    </form>
+  </div>
+</div>
+
+<!-- HEADER CARD -->
+<div class="finding-detail-header mb-3">
+  <div class="finding-meta mb-2">
+    <span class="sev sev-{{ finding.severity }}">{{ finding.severity }}</span>
+    <span class="status-badge status-{{ finding.status.replace(' ','-') }}" id="statusBadge">{{ finding.status }}</span>
+    {% if finding.host_ip %}
+      <span class="mono" style="color:var(--purple)">{{ finding.host_ip }}</span>
+    {% endif %}
+    {% if finding.scan_name %}
+      <span style="color:var(--blue);font-size:.8rem">📂 {{ finding.scan_name }}</span>
+    {% endif %}
+    {% if finding.cvss_score %}
+      <span style="background:var(--bg3);border:1px solid var(--border);padding:.15rem .55rem;
+                   border-radius:999px;font-size:.7rem;font-weight:700;
+                   color:{% if finding.cvss_score|float >= 9.0 %}var(--crit-fg)
+                          {% elif finding.cvss_score|float >= 7.0 %}var(--high-fg)
+                          {% elif finding.cvss_score|float >= 4.0 %}var(--med-fg)
+                          {% else %}var(--green){% endif %}">
+        CVSS {{ finding.cvss_score }}
+      </span>
+    {% endif %}
+    <span class="t-dim" style="font-size:.75rem">Created {{ finding.created_at[:10] }}</span>
+    {% if finding.updated_at != finding.created_at %}
+    <span class="t-dim" style="font-size:.75rem">· Updated {{ finding.updated_at[:10] }}</span>
+    {% endif %}
+  </div>
+
+  <!-- QUICK STATUS CHANGE -->
+  <div class="flex gap-1 flex-wrap">
+    <span style="font-size:.78rem;color:var(--dim);align-self:center">Quick status:</span>
+    {% for st in ['Open','In Progress','Resolved','Accepted'] %}
+    <button class="btn btn-secondary btn-sm {% if finding.status == st %}btn-success{% endif %}"
+            onclick="setStatus('{{ st }}', this)">{{ st }}</button>
+    {% endfor %}
+  </div>
+
+  {% if finding.tags %}
+  <div style="margin-top:.75rem;display:flex;gap:.4rem;flex-wrap:wrap">
+    {% for tag in finding.tags %}<span class="tag">{{ tag }}</span>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<div class="grid-2">
+  <!-- LEFT -->
+  <div style="display:flex;flex-direction:column;gap:1rem">
+
+    <div class="card">
+      <div class="card-header"><h3>📋 Description</h3></div>
+      <div class="card-body">
+        {% if finding.description %}
+        <div class="finding-section" style="margin:0">
+          <div class="content-box">{{ finding.description }}</div>
+        </div>
+        {% else %}
+        <span class="t-dim">No description provided.</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>🏢 Business Impact</h3></div>
+      <div class="card-body">
+        {% if finding.business_impact %}
+        <div class="content-box" style="border-left:3px solid var(--orange)">{{ finding.business_impact }}</div>
+        {% else %}
+        <span class="t-dim">Not specified.</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>⚙️ Technical Impact</h3></div>
+      <div class="card-body">
+        {% if finding.technical_impact %}
+        <div class="content-box" style="border-left:3px solid var(--red)">{{ finding.technical_impact }}</div>
+        {% else %}
+        <span class="t-dim">Not specified.</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>✅ Recommendation</h3></div>
+      <div class="card-body">
+        {% if finding.recommendation %}
+        <div class="content-box" style="border-left:3px solid var(--green)">{{ finding.recommendation }}</div>
+        {% else %}
+        <span class="t-dim">Not specified.</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div style="display:flex;flex-direction:column;gap:1rem">
+
+    <div class="card">
+      <div class="card-header"><h3>🔁 Steps to Reproduce</h3></div>
+      <div class="card-body">
+        {% if finding.steps_to_reproduce %}
+        <div class="content-box steps-box">{{ finding.steps_to_reproduce }}</div>
+        {% else %}
+        <span class="t-dim">No steps provided.</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>🔍 Evidence</h3></div>
+      <div class="card-body">
+        {% if finding.evidence %}
+        <div class="content-box steps-box" style="font-size:.78rem">{{ finding.evidence }}</div>
+        {% else %}
+        <span class="t-dim">No evidence attached.</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function setStatus(status, btn) {
+  try {
+    await fetch('/api/findings/{{ finding.id }}/status', {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({status})
+    });
+    document.querySelectorAll('.actions .btn-success').forEach(b => b.classList.remove('btn-success'));
+    btn.classList.add('btn-success');
+    document.getElementById('statusBadge').textContent = status;
+    document.getElementById('statusBadge').className =
+      'status-badge status-' + status.replace(' ','-');
+  } catch(e) { alert('Failed to update status'); }
+}
+</script>
+{% endblock %}
