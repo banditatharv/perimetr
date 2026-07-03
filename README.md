@@ -3,8 +3,8 @@
 **A unified recon & scanning toolkit for network/infrastructure penetration testing.**
 
 Perimetr chains the day-to-day scanning steps of a subnet-based engagement into
-a single pipeline — host discovery → full port scan → service/version scan →
-vulnerability scan — and feeds every result into a self-hosted **nmap_suite**
+a single pipeline - host discovery → full port scan → service/version scan →
+vulnerability scan - and feeds every result into a self-hosted **nmap_suite**
 web dashboard for tracking findings, ports, and notes across a project.
 
 Each stage is also a fully standalone script, so you can run any single step on
@@ -17,22 +17,22 @@ its own or drive the whole chain with one command.
 
 ## Features
 
-- **One pipeline, one command** — `perimetr run` takes a subnet list (or an IP
+- **One pipeline, one command** - `perimetr run` takes a subnet list (or an IP
   list) and runs discovery, port scanning, service scanning, and nuclei end to
   end, dropping each stage's output into an organized project folder.
-- **Every stage is standalone** — `sweep`, `portscan`, `extract-ports`,
+- **Every stage is standalone** - `sweep`, `portscan`, `extract-ports`,
   `servicescan`, `service-report`, `nuclei`, `sshaudit`, `domaincheck`.
-- **Parallel scanning via tmux** — port and service scans fan out across
+- **Parallel scanning via tmux** - port and service scans fan out across
   concurrent tmux sessions.
-- **Interactive menu** — run `perimetr` with no arguments for an arrow-key,
+- **Interactive menu** - run `perimetr` with no arguments for an arrow-key,
   guided menu (with an environment check that flags missing tools up front).
-- **nmap_suite dashboard** — a Flask app that imports `.nmap` scans and tracks
+- **nmap_suite dashboard** - a Flask app that imports `.nmap` scans and tracks
   hosts, ports, an auto-fingerprint engine, manual findings, notes, and
   projects in SQLite.
-- **Findings land in the dashboard automatically** — `perimetr run` imports its
+- **Findings land in the dashboard automatically** - `perimetr run` imports its
   nmap, nuclei, and ssh-audit results into nmap_suite, so a finished run is
   already browsable per-project (no manual copy/import step).
-- **Consistent, colored output** — every script shares one `rich`-based UI
+- **Consistent, colored output** - every script shares one `rich`-based UI
   module (`perimetrUI.py`).
 
 ---
@@ -133,7 +133,7 @@ python3 perimetr.py sshaudit       --mode full --targets ip_ports.txt
 python3 perimetr.py domaincheck    domains.txt
 ```
 
-Each subcommand maps to a standalone script — run `perimetr <command> -h` for
+Each subcommand maps to a standalone script - run `perimetr <command> -h` for
 its full options.
 
 ### Importing results into the dashboard
@@ -160,14 +160,14 @@ python3 app.py            # then open http://localhost:5000
 
 It provides:
 
-- **Scans / Hosts / Ports** — import `.nmap` files (upload or point at a folder).
-- **Auto-findings** — a built-in fingerprint engine (plus custom rules you can
+- **Scans / Hosts / Ports** - import `.nmap` files (upload or point at a folder).
+- **Auto-findings** - a built-in fingerprint engine (plus custom rules you can
   add in the UI).
-- **Nuclei & SSH Audit views** — imported findings, filterable and grouped per
+- **Nuclei & SSH Audit views** - imported findings, filterable and grouped per
   scan/project.
-- **Manual findings & notes** — document vulns (severity, status, impact,
+- **Manual findings & notes** - document vulns (severity, status, impact,
   evidence) and keep per-host/scan notes.
-- **Projects & Service Map** — group scans and browse services across all hosts.
+- **Projects & Service Map** - group scans and browse services across all hosts.
 
 The SQLite database and imported scans are created under `nmap_suite/data/` and
 `nmap_suite/scans/` at runtime (git-ignored).
@@ -199,6 +199,6 @@ files/                 Standalone nmap-based prototype scripts + docs (self-cont
 
 - Service/port scans run `sudo nmap`; make sure the runtime user can `sudo`.
 - Scan output, reports, the nmap_suite database, and secret keys are all
-  git-ignored — the repo ships code only, not engagement data.
+  git-ignored - the repo ships code only, not engagement data.
 - `perimetr.py` and the underlying scripts are decoupled: every stage remains
   independently runnable, so you can drop into any single tool without the CLI.
