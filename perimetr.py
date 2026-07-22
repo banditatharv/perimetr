@@ -10,6 +10,7 @@ copy-between-folders workflow with one command.
 
 Usage:
   perimetr sweep -f subnets.txt -o scan_results
+  perimetr pingsweep ips.txt -o ping_results
   perimetr portscan -i ips.txt -o portscan_out
   perimetr extract-ports -d portscan_out -s ips.txt -o ip_ports.txt
   perimetr servicescan -i ip_ports.txt -o servicescan_out
@@ -108,6 +109,32 @@ def consolidate_ips(sweep_dir, dest):
     ui.success(f"Consolidated {len(ips)} unique IP(s) -> {dest}")
 
 
+def consolidate_pingsweep_alive(pingsweep_dir, dest):
+    """Merge ping_sweep's alive-host outputs into one deduped list for the
+    downstream pipeline: plain IPs from responded_ping.txt plus the IPs from
+    responded_nmap.txt (lines look like '<ip> - Ports: ...', so take the head).
+    Returns the number of alive hosts written."""
+    d = Path(pingsweep_dir)
+    ips = set()
+    ping_file = d / 'responded_ping.txt'
+    if ping_file.exists():
+        for line in ping_file.read_text().splitlines():
+            line = line.strip()
+            if line:
+                ips.add(line)
+    nmap_file = d / 'responded_nmap.txt'
+    if nmap_file.exists():
+        for line in nmap_file.read_text().splitlines():
+            line = line.strip()
+            if line:
+                ip = line.split(' - ')[0].strip()
+                if ip:
+                    ips.add(ip)
+    dest.write_text('\n'.join(sorted(ips, key=ip_sort_key)) + ('\n' if ips else ''))
+    ui.success(f"Ping sweep: {len(ips)} alive host(s) -> {dest}")
+    return len(ips)
+
+
 # ── nmap_suite DB import (connective tissue) ───────────────────────────
 
 SUITE_MODULES = SCRIPT_DIR / 'nmap_suite' / 'modules'
@@ -179,6 +206,14 @@ def safe_db_import(*args, **kwargs):
 def cmd_sweep(args):
     cmd = [PY, script('advanced_subnet_sweep.py'), '-f', args.file, '-o', args.output, '-t', str(args.threads)]
     run_step(cmd, "Subnet Sweep")
+
+
+def cmd_pingsweep(args):
+    cmd = [PY, script('ping_sweep.py'), args.input, '-o', args.output,
+           '-t', str(args.timeout), '-p', str(args.parallel)]
+    if getattr(args, 'no_timestamp', False):
+        cmd.append('--no-timestamp')
+    run_step(cmd, "Ping Sweep (liveness)")
 
 
 def cmd_portscan(args):
@@ -304,6 +339,21 @@ def cmd_run(args):
     if not ips_file.exists() or not ips_file.read_text().strip():
         raise PerimetrError(f"No IPs to scan ({ips_file}). Stopping.")
 
+    # Optional liveness filter: prune dead hosts (and catch ICMP-blockers via
+    # the nmap fallback) before the expensive full-port scan. Replaces the
+    # working IP list for every downstream stage with only the alive hosts.
+    if 'pingsweep' in stages:
+        pingsweep_dir = project_dir / '01b_pingsweep'
+        run_step(
+            [PY, script('ping_sweep.py'), str(ips_file), '-o', str(pingsweep_dir),
+             '--no-timestamp', '-t', str(args.pingsweep_timeout), '-p', str(args.pingsweep_threads)],
+            "Stage 1b: Ping Sweep (liveness filter)"
+        )
+        alive_file = project_dir / 'alive_ips.txt'
+        if not consolidate_pingsweep_alive(pingsweep_dir, alive_file):
+            raise PerimetrError("Ping sweep found no alive hosts - stopping.")
+        ips_file = alive_file
+
     if 'portscan' in stages:
         run_step(
             [PY, script('portScanning.py'), '-i', str(ips_file), '-o', str(portscan_dir), '-t', str(args.portscan_threads)],
@@ -425,6 +475,16 @@ def prompt_sweep():
     return types.SimpleNamespace(file=file, output=output, threads=int(threads))
 
 
+def prompt_pingsweep():
+    input_ = ask(questionary.path("IP list file:", style=Q_STYLE))
+    output = ask(questionary.text("Output directory:", default="ping_results", style=Q_STYLE))
+    timeout = ask(questionary.text("Ping timeout (s):", default="1", style=Q_STYLE))
+    parallel = ask(questionary.text("Parallel pings:", default="10", style=Q_STYLE))
+    return types.SimpleNamespace(input=input_, output=output,
+                                 timeout=int(timeout), parallel=int(parallel),
+                                 no_timestamp=False)
+
+
 def prompt_portscan():
     input_ = ask(questionary.path("IP list file:", style=Q_STYLE))
     output = ask(questionary.text("Output directory:", default="portscan_out", style=Q_STYLE))
@@ -503,6 +563,7 @@ def prompt_domaincheck():
 
 STAGE_PROMPTS = {
     "sweep": (prompt_sweep, cmd_sweep),
+    "pingsweep": (prompt_pingsweep, cmd_pingsweep),
     "portscan": (prompt_portscan, cmd_portscan),
     "extract-ports": (prompt_extract_ports, cmd_extract_ports),
     "servicescan": (prompt_servicescan, cmd_servicescan),
@@ -512,9 +573,10 @@ STAGE_PROMPTS = {
     "domaincheck": (prompt_domaincheck, cmd_domaincheck),
 }
 
-PIPELINE_ORDER = ['sweep', 'portscan', 'extract', 'servicescan', 'nuclei']
+PIPELINE_ORDER = ['sweep', 'pingsweep', 'portscan', 'extract', 'servicescan', 'nuclei']
 PIPELINE_LABELS = {
     'sweep': 'Subnet Sweep',
+    'pingsweep': 'Ping Sweep (liveness)',
     'portscan': 'Full Port Scan',
     'extract': 'Extract Ports',
     'servicescan': 'Service/Version Scan',
@@ -525,8 +587,10 @@ PIPELINE_LABELS = {
 def run_pipeline_wizard():
     """Pick a subset of the fixed pipeline order (e.g. skip sweep, start at
     portscan) and run it via the same cmd_run() the CLI 'run' command uses."""
+    # sweep is the alternate starting point (subnets vs. an existing IP list);
+    # pingsweep is an opt-in liveness filter - both start unticked.
     choices = [
-        questionary.Choice(PIPELINE_LABELS[s], value=s, checked=(s != 'sweep'))
+        questionary.Choice(PIPELINE_LABELS[s], value=s, checked=(s not in ('sweep', 'pingsweep')))
         for s in PIPELINE_ORDER
     ]
     selected = ask(questionary.checkbox(
@@ -545,7 +609,8 @@ def run_pipeline_wizard():
 
     ns = types.SimpleNamespace(
         scope=None, ips=None, project=project, workdir=workdir, stages=','.join(stages),
-        sweep_threads=50, portscan_threads=3, service_threads=3, nuclei_concurrent=5, severity=None,
+        sweep_threads=50, pingsweep_threads=10, pingsweep_timeout=1,
+        portscan_threads=3, service_threads=3, nuclei_concurrent=5, severity=None,
         no_db_import=(not db_import_on), db=None,
     )
 
@@ -565,6 +630,7 @@ def run_pipeline_wizard():
 MENU_ITEMS = [
     ("Run Pipeline (choose stages)", "pipeline"),
     ("Subnet Sweep", "sweep"),
+    ("Ping Sweep (liveness)", "pingsweep"),
     ("Full Port Scan", "portscan"),
     ("Extract Ports", "extract-ports"),
     ("Service/Version Scan", "servicescan"),
@@ -624,6 +690,15 @@ def build_parser():
     p.add_argument('-t', '--threads', type=int, default=50)
     p.set_defaults(func=cmd_sweep)
 
+    p = sub.add_parser('pingsweep', help='ICMP ping sweep of an IP list (+ nmap fallback for hosts that block ICMP)')
+    p.add_argument('input', help='File of IP addresses (one per line)')
+    p.add_argument('-o', '--output', default='ping_results')
+    p.add_argument('-t', '--timeout', type=int, default=1, help='Ping timeout in seconds (default: 1)')
+    p.add_argument('-p', '--parallel', type=int, default=10, help='Parallel pings (default: 10)')
+    p.add_argument('--no-timestamp', action='store_true',
+                   help='Write directly to -o instead of a timestamped scan_<ts>/ subfolder')
+    p.set_defaults(func=cmd_pingsweep)
+
     p = sub.add_parser('portscan', help='Full-port nmap scan via tmux')
     p.add_argument('-i', '--input', required=True)
     p.add_argument('-o', '--output', required=True)
@@ -678,14 +753,16 @@ def build_parser():
     p.add_argument('input_file', nargs='?')
     p.set_defaults(func=cmd_domaincheck)
 
-    p = sub.add_parser('run', help='Chain sweep -> portscan -> extract -> servicescan -> nuclei')
+    p = sub.add_parser('run', help='Chain sweep -> [pingsweep] -> portscan -> extract -> servicescan -> nuclei')
     start = p.add_mutually_exclusive_group(required=False)
     start.add_argument('--scope', help='Subnets file (starts from the sweep stage)')
     start.add_argument('--ips', help='Existing IP list file (skips the sweep stage)')
     p.add_argument('--project', required=True, help='Project name; results go in <workdir>/<project>/')
     p.add_argument('--workdir', default='.', help='Base directory for project folders (default: current dir)')
-    p.add_argument('--stages', help='Comma-separated stage subset, e.g. portscan,extract,servicescan')
+    p.add_argument('--stages', help='Comma-separated stage subset, e.g. pingsweep,portscan,extract,servicescan (pingsweep is opt-in, not in the default chain)')
     p.add_argument('--sweep-threads', type=int, default=50)
+    p.add_argument('--pingsweep-threads', type=int, default=10, help='Parallel pings for the optional pingsweep stage')
+    p.add_argument('--pingsweep-timeout', type=int, default=1, help='Ping timeout (s) for the optional pingsweep stage')
     p.add_argument('--portscan-threads', type=int, default=3)
     p.add_argument('--service-threads', type=int, default=3)
     p.add_argument('--nuclei-concurrent', type=int, default=5)
@@ -713,16 +790,12 @@ def main():
             try:
                 interactive_menu()
             except Exception as e:
-                # e.g. prompt_toolkit's NoConsoleScreenBufferError under
-                # mintty/git-bash on Windows - isatty() lied, fall back safely
-                # instead of crashing with a raw traceback.
                 ui.error(f"Interactive menu unavailable in this terminal ({e})")
                 ui.info("Falling back to the static command reference.")
                 print_banner()
                 check_environment()
                 print_menu(sub)
         else:
-            # Non-interactive context (piped/redirected) - a prompt would hang.
             print_banner()
             check_environment()
             print_menu(sub)
